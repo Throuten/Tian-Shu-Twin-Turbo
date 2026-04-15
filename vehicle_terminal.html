@@ -1,0 +1,4340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>车主终端 - 智慧交通全域信号管控系统</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
+    <style>
+        :root {
+            --bg-color: #070f1c;
+            --panel-bg: #0f1829;
+            --panel-elevated: #152238;
+            --text-color: #dce3f0;
+            --text-muted: #8b9bb8;
+            --primary-color: #3b82f6;
+            --border-color: rgba(55, 75, 105, 0.5);
+            --icon-size: 24px;
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 14px;
+            --shadow-panel: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+            --shadow-elevated: 0 24px 56px -16px rgba(0, 0, 0, 0.55);
+            --glow-blue: 0 0 40px rgba(59, 130, 246, 0.12);
+        }
+        html { height: 100%; }
+        body, html {
+            margin: 0; padding: 0; height: 100%;
+            font-family: "Noto Sans SC", "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+            background: #050810;
+            background-image:
+                radial-gradient(ellipse 100% 70% at 50% -15%, rgba(59, 130, 246, 0.09), transparent 52%),
+                radial-gradient(ellipse 70% 50% at 100% 5%, rgba(45, 160, 200, 0.06), transparent 48%),
+                linear-gradient(180deg, #0c121f 0%, #050810 38%, #080c14 100%);
+            color: var(--text-color);
+            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+        .container {
+            position: relative; width: 100%; height: 100%; min-height: 0; overflow: hidden; box-sizing: border-box;
+            display: grid;
+            grid-template-columns: 280px 1fr;
+        }
+        .left-panel {
+            position: relative; z-index: 10;
+            background: linear-gradient(180deg, #121826 0%, #0c1018 100%);
+            border-right: 1px solid rgba(100, 116, 139, 0.35);
+            display: flex; flex-direction: column;
+            padding: 18px 14px 14px; gap: 14px; min-height: 0; overflow-y: auto;
+            box-shadow: 6px 0 32px rgba(0,0,0,0.4);
+        }
+        .left-panel h2 {
+            margin: 0 0 16px; font-size: 18px; font-weight: 700;
+            color: #93c5fd; letter-spacing: 0.02em;
+        }
+        .left-menu {
+            list-style: none; margin: 0; padding: 0; overflow-y: auto;
+            display: flex; flex-direction: column; gap: 4px;
+        }
+        .left-menu li {
+            padding: 12px 14px; border-radius: 8px; cursor: pointer; font-size: 13px;
+            line-height: 1.45;
+            border: 1px solid rgba(51, 65, 85, 0.85);
+            background: linear-gradient(180deg, #1a2230 0%, #151c28 100%);
+            color: #cbd5e1;
+            transition: transform 0.11s ease, border-color 0.15s, background 0.15s, box-shadow 0.15s;
+        }
+        .left-menu li:hover {
+            border-color: rgba(96, 165, 250, 0.45); background: #1c2636;
+        }
+        .left-menu li:active {
+            transform: scale(0.98);
+        }
+        .left-menu li.active {
+            border-color: #3b82f6;
+            color: #f8fafc;
+            background: linear-gradient(135deg, #1e40af 0%, #1d4ed8 55%, #172554 100%);
+            box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.35), 0 6px 20px rgba(37, 99, 235, 0.22);
+        }
+        .left-section {
+            margin-top: 20px;
+        }
+        .left-section h3 {
+            margin: 0 0 8px; font-size: 11px; font-weight: 700; color: #7eb8ff;
+            letter-spacing: 0.1em; text-transform: uppercase;
+        }
+        .map-container {
+            position: relative;
+            height: 100%;
+            min-height: 0;
+            overflow: hidden;
+        }
+        .map-base {
+            position: absolute; inset: 0; z-index: 0; background: #0d1524;
+        }
+        .map-wrap {
+            position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0;
+        }
+        #map {
+            flex: 1 1 auto;
+            min-height: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: 0;
+        }
+        #map.leaflet-container { min-height: 0; }
+        .header {
+            position: absolute; top: 0; left: 0; right: 0; z-index: 1000;
+            background: linear-gradient(165deg, rgba(22, 32, 52, 0.97) 0%, rgba(12, 20, 38, 0.98) 50%, rgba(10, 16, 30, 0.99) 100%);
+            backdrop-filter: blur(14px) saturate(1.2);
+            border-radius: 0 0 var(--radius-md) var(--radius-md);
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 12px 20px;
+            font-size: 16px; font-weight: 600; letter-spacing: 0.06em;
+            border-bottom: 1px solid rgba(59, 130, 246, 0.22);
+            box-shadow: var(--shadow-panel), var(--glow-blue), 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+        }
+        .header-brand {
+            font-size: 15px; font-weight: 700; letter-spacing: 0.08em;
+            color: #eff6ff;
+            text-shadow: 0 0 48px rgba(59, 130, 246, 0.35), 0 1px 2px rgba(0, 0, 0, 0.4);
+        }
+        .header-right {
+            display: flex; align-items: center; gap: 12px;
+        }
+        .nav-panel {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 1000;
+            background: linear-gradient(180deg, rgba(18, 28, 48, 0.96) 0%, rgba(8, 14, 26, 0.98) 100%);
+            backdrop-filter: blur(14px) saturate(1.15);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(59, 130, 246, 0.22);
+            padding: 12px 20px;
+            box-shadow: var(--shadow-elevated), var(--glow-blue), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            display: flex; gap: 16px;
+        }
+        .nav-btn {
+            padding: 10px 16px;
+            border-radius: var(--radius-sm);
+            border: 1px solid rgba(59, 130, 246, 0.38);
+            background: linear-gradient(180deg, rgba(22, 42, 82, 0.95) 0%, rgba(12, 28, 62, 0.98) 100%);
+            color: #93c5fd;
+            font-size: 13px; font-weight: 600;
+            cursor: pointer;
+            transition: border-color 0.15s, color 0.15s, filter 0.15s, background 0.2s, box-shadow 0.2s;
+        }
+        .nav-btn:hover {
+            border-color: rgba(147, 197, 253, 0.6);
+            color: #eff6ff;
+            filter: brightness(1.06);
+        }
+        .nav-btn.active {
+            border-color: #3b82f6;
+            color: #ffffff;
+            background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 48%, #1e3a8a 100%);
+            box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.45), 0 4px 14px rgba(30, 58, 138, 0.42);
+        }
+        .search-panel {
+            position: absolute; top: 80px; left: 20px; right: 20px; z-index: 1000;
+            background: linear-gradient(180deg, rgba(18, 28, 48, 0.96) 0%, rgba(8, 14, 26, 0.98) 100%);
+            backdrop-filter: blur(14px) saturate(1.15);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(59, 130, 246, 0.22);
+            padding: 12px;
+            box-shadow: var(--shadow-elevated), var(--glow-blue), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            display: flex; gap: 8px;
+        }
+        .search-input {
+            flex: 1;
+            padding: 10px 14px;
+            border-radius: var(--radius-sm);
+            border: 1px solid rgba(59, 130, 246, 0.38);
+            background: rgba(8, 14, 26, 0.85);
+            color: var(--text-color);
+            font-size: 13px;
+        }
+        .search-btn {
+            padding: 10px 16px;
+            border-radius: var(--radius-sm);
+            border: 1px solid rgba(59, 130, 246, 0.38);
+            background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+            color: #ffffff;
+            font-size: 13px; font-weight: 600;
+            cursor: pointer;
+        }
+        .route-info {
+            position: absolute; top: 140px; left: 20px; right: 20px; z-index: 1000;
+            background: linear-gradient(180deg, rgba(18, 28, 48, 0.96) 0%, rgba(8, 14, 26, 0.98) 100%);
+            backdrop-filter: blur(14px) saturate(1.15);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(59, 130, 246, 0.22);
+            padding: 16px;
+            box-shadow: var(--shadow-elevated), var(--glow-blue), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            display: none;
+            transform: translateY(-20px);
+            opacity: 0;
+            transition: transform 0.3s ease, opacity 0.3s ease;
+        }
+        .route-info.visible {
+            display: block;
+            transform: translateY(0);
+            opacity: 1;
+        }
+        .route-info h3 {
+            margin: 0 0 12px 0;
+            font-size: 15px;
+            color: var(--primary-color);
+            letter-spacing: 0.04em;
+            font-weight: 600;
+        }
+        .route-details {
+            display: flex; justify-content: space-around;
+            font-size: 13px;
+            color: var(--text-muted);
+            gap: 20px;
+        }
+        .route-details-item {
+            text-align: center;
+            flex: 1;
+            padding: 8px 12px;
+            background: rgba(59, 130, 246, 0.1);
+            border-radius: var(--radius-sm);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+        }
+        .route-details-label {
+            display: block;
+            font-size: 11px;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+        .route-details-value {
+            display: block;
+            color: var(--text-color);
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .route-details-value.traffic-normal {
+            color: #4ade80;
+        }
+        .route-details-value.traffic-heavy {
+            color: #fbbf24;
+        }
+        .route-details-value.traffic-congested {
+            color: #fb7185;
+        }
+        .leaflet-div-icon {
+            background: transparent; border: none; font-size: var(--icon-size); text-align: center;
+        }
+        .vehicle-marker {
+            animation: pulse-blue 1.5s infinite;
+        }
+        @keyframes pulse-blue {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.15); opacity: 0.75; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        
+        /* 路况圆形背景圈样式 */
+        .traffic-circle {
+            transition: fill-opacity 0.3s ease, stroke-width 0.3s ease;
+            animation: pulse 2s infinite;
+        }
+        .traffic-circle:hover {
+            fill-opacity: 0.5 !important;
+            stroke-width: 4 !important;
+        }
+        @keyframes pulse {
+            0% { stroke-opacity: 0.8; }
+            50% { stroke-opacity: 1; }
+            100% { stroke-opacity: 0.8; }
+        }
+
+        
+        /* 路况图例 */
+        .traffic-legend {
+            position: absolute; top: 240px; right: 20px; z-index: 1000;
+            background: linear-gradient(180deg, rgba(18, 28, 48, 0.96) 0%, rgba(8, 14, 26, 0.98) 100%);
+            backdrop-filter: blur(14px) saturate(1.15);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(59, 130, 246, 0.22);
+            padding: 12px;
+            box-shadow: var(--shadow-elevated), var(--glow-blue), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            display: none;
+            width: 220px;
+        }
+        .traffic-legend.visible {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateX(20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        .traffic-legend h4 {
+            margin: 0 0 8px 0;
+            font-size: 13px;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        .traffic-legend-item {
+            display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .traffic-legend-color {
+            width: 24px; height: 4px; border-radius: 2px;
+        }
+        .traffic-legend-color.smooth {
+            background: #4ade80;
+        }
+        .traffic-legend-color.light {
+            background: #fbbf24;
+        }
+        .traffic-legend-color.heavy {
+            background: #f97316;
+        }
+        .traffic-legend-color.congested {
+            background: #fb7185;
+        }
+        
+        /* 路况信息弹窗 */
+        .traffic-popup {
+            background: rgba(18, 28, 48, 0.95);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            border-radius: var(--radius-sm);
+            padding: 8px 12px;
+            color: var(--text-color);
+            font-size: 12px;
+        }
+        .traffic-popup h5 {
+            margin: 0 0 4px 0;
+            color: var(--primary-color);
+            font-size: 13px;
+        }
+        .traffic-popup p {
+            margin: 0;
+            line-height: 1.4;
+        }
+        
+        /* 拥堵热力图 */
+        .heatmap-overlay {
+            opacity: 0.3;
+            transition: opacity 0.5s ease;
+        }
+        .heatmap-overlay:hover {
+            opacity: 0.5;
+        }
+        
+        /* 区域拥堵提示 */
+        .area-congestion {
+            position: absolute; top: 400px; right: 20px; z-index: 1000;
+            background: linear-gradient(180deg, rgba(18, 28, 48, 0.96) 0%, rgba(8, 14, 26, 0.98) 100%);
+            backdrop-filter: blur(14px) saturate(1.15);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(59, 130, 246, 0.22);
+            padding: 12px;
+            box-shadow: var(--shadow-elevated), var(--glow-blue), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            display: none;
+            width: 220px;
+        }
+        .area-congestion.visible {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+        .area-congestion h4 {
+            margin: 0 0 8px 0;
+            font-size: 13px;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        .area-congestion-item {
+            display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 6px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .area-congestion-level {
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+        .area-congestion-level.low {
+            background: rgba(74, 222, 128, 0.2);
+            color: #4ade80;
+            border: 1px solid rgba(74, 222, 128, 0.3);
+        }
+        .area-congestion-level.medium {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+            border: 1px solid rgba(251, 191, 36, 0.3);
+        }
+        .area-congestion-level.high {
+            background: rgba(251, 113, 133, 0.2);
+            color: #fb7185;
+            border: 1px solid rgba(251, 113, 133, 0.3);
+        }
+        
+        /* 停车场信息 */
+        .parking-info {
+            position: absolute; top: 240px; right: 20px; z-index: 1000;
+            background: linear-gradient(180deg, rgba(18, 28, 48, 0.96) 0%, rgba(8, 14, 26, 0.98) 100%);
+            backdrop-filter: blur(14px) saturate(1.15);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(59, 130, 246, 0.22);
+            padding: 12px;
+            box-shadow: var(--shadow-elevated), var(--glow-blue), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            display: none;
+            width: 220px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .parking-info.visible {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+        .parking-info h4 {
+            margin: 0 0 8px 0;
+            font-size: 13px;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        .parking-info-item {
+            margin-bottom: 8px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid rgba(59, 130, 246, 0.1);
+        }
+        .parking-info-item:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+        .parking-name {
+            font-size: 12px;
+            color: var(--text-color);
+            font-weight: 500;
+            margin-bottom: 2px;
+        }
+        .parking-details {
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+        .parking-distance {
+            flex: 1;
+        }
+        .parking-spaces {
+            flex: 1;
+            text-align: center;
+            font-weight: 600;
+        }
+        .parking-price {
+            flex: 1;
+            text-align: right;
+        }
+        
+        /* 停车场标记 */
+        .parking-marker {
+            animation: pulse 2s infinite;
+        }
+        
+        /* 红绿灯标记样式 - 与政府端保持一致 */
+        .traffic-light-marker {
+            background: transparent;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .traffic-light-container {
+            background: rgba(0, 0, 0, 0.8);
+            border: 2px solid #333;
+            border-radius: 6px;
+            padding: 4px 8px;
+            color: white;
+            font-weight: bold;
+            font-size: 11px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+        }
+        .light-red { color: #ff4d4f; }
+        .light-yellow { color: #faad14; }
+        .light-green { color: #52c41a; }
+        
+        /* 停车场弹窗 */
+        .parking-popup {
+            background: rgba(18, 28, 48, 0.95);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            border-radius: var(--radius-sm);
+            padding: 8px 12px;
+            color: var(--text-color);
+            font-size: 12px;
+        }
+        .parking-popup h5 {
+            margin: 0 0 4px 0;
+            color: var(--primary-color);
+            font-size: 13px;
+        }
+        .parking-popup p {
+            margin: 0;
+            line-height: 1.4;
+        }
+        
+        /* 天气信息 */
+        .weather-info {
+            position: absolute; top: 240px; right: 20px; z-index: 1000;
+            background: linear-gradient(180deg, rgba(18, 28, 48, 0.96) 0%, rgba(8, 14, 26, 0.98) 100%);
+            backdrop-filter: blur(14px) saturate(1.15);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(59, 130, 246, 0.22);
+            padding: 12px;
+            box-shadow: var(--shadow-elevated), var(--glow-blue), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            display: none;
+            width: 220px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .weather-info.visible {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+        .weather-info h4 {
+            margin: 0 0 8px 0;
+            font-size: 13px;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        .weather-info h5 {
+            margin: 8px 0 6px 0;
+            font-size: 12px;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .weather-current {
+            display: flex; flex-direction: column; align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(59, 130, 246, 0.1);
+            margin-bottom: 8px;
+        }
+        .weather-icon {
+            font-size: 36px;
+            margin-bottom: 4px;
+        }
+        .weather-temp {
+            font-size: 28px;
+            font-weight: bold;
+            color: var(--text-color);
+            margin-bottom: 2px;
+        }
+        .weather-desc {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .weather-details {
+            margin-bottom: 8px;
+        }
+        .weather-detail-item {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 4px;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+        .weather-detail-label {
+            flex: 1;
+        }
+        .weather-detail-value {
+            flex: 1;
+            text-align: right;
+            color: var(--text-color);
+            font-weight: 500;
+        }
+        .weather-forecast {
+            border-top: 1px solid rgba(59, 130, 246, 0.1);
+            padding-top: 8px;
+        }
+        .forecast-item {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 6px;
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(59, 130, 246, 0.05);
+            font-size: 10px;
+        }
+        .forecast-item:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+        .forecast-day {
+            flex: 1;
+            font-weight: 600;
+            color: var(--text-color);
+        }
+        .forecast-date {
+            flex: 1;
+            color: var(--text-muted);
+        }
+        .forecast-icon {
+            flex: 0 0 24px;
+            text-align: center;
+            font-size: 16px;
+        }
+        .forecast-weather {
+            flex: 1;
+            color: var(--text-muted);
+        }
+        .forecast-temp {
+            flex: 1;
+            text-align: right;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .weather-update {
+            margin-top: 8px;
+            padding-top: 6px;
+            border-top: 1px solid rgba(59, 130, 246, 0.1);
+            font-size: 9px;
+            color: var(--text-muted);
+            text-align: center;
+        }
+        
+        /* AI辅助信息 */
+        .ai-assistant-info {
+            position: absolute; top: 240px; right: 20px; z-index: 1000;
+            background: linear-gradient(180deg, rgba(18, 28, 48, 0.96) 0%, rgba(8, 14, 26, 0.98) 100%);
+            backdrop-filter: blur(14px) saturate(1.15);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(59, 130, 246, 0.22);
+            padding: 12px;
+            box-shadow: var(--shadow-elevated), var(--glow-blue), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            display: none;
+            width: 240px;
+            max-height: 450px;
+            overflow-y: auto;
+        }
+        .ai-assistant-info.visible {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+        .ai-assistant-info h4 {
+            margin: 0 0 8px 0;
+            font-size: 13px;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        .ai-assistant-info h5 {
+            margin: 8px 0 6px 0;
+            font-size: 11px;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .ai-section {
+            margin-bottom: 8px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(59, 130, 246, 0.1);
+        }
+        .ai-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+        .ai-alert-item {
+            margin-bottom: 6px;
+            padding: 6px;
+            border-radius: 4px;
+            background: rgba(59, 130, 246, 0.05);
+        }
+        .ai-alert-item.violation {
+            border-left: 2px solid #fb7185;
+        }
+        .ai-alert-item.danger {
+            border-left: 2px solid #fbbf24;
+        }
+        .ai-alert-location {
+            font-size: 11px;
+            color: var(--text-color);
+            font-weight: 500;
+            margin-bottom: 2px;
+        }
+        .ai-alert-details {
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 9px;
+            color: var(--text-muted);
+        }
+        .ai-alert-type {
+            flex: 1;
+        }
+        .ai-alert-risk {
+            flex: 1;
+            text-align: center;
+            font-weight: 600;
+        }
+        .ai-alert-distance {
+            flex: 1;
+            text-align: right;
+        }
+        .ai-route-item {
+            margin-bottom: 6px;
+            padding: 6px;
+            border-radius: 4px;
+            background: rgba(74, 222, 128, 0.05);
+            border-left: 2px solid #4ade80;
+        }
+        .ai-route-name {
+            font-size: 11px;
+            color: var(--text-color);
+            font-weight: 600;
+            margin-bottom: 2px;
+        }
+        .ai-route-desc {
+            font-size: 9px;
+            color: var(--text-muted);
+            margin-bottom: 2px;
+        }
+        .ai-route-details {
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 9px;
+            color: var(--text-muted);
+        }
+        .ai-route-distance {
+            flex: 1;
+        }
+        .ai-route-time {
+            flex: 1;
+            text-align: center;
+        }
+        .ai-route-traffic {
+            flex: 1;
+            text-align: center;
+            font-weight: 600;
+        }
+        .ai-route-priority {
+            flex: 1;
+            text-align: right;
+            font-weight: 600;
+        }
+        .ai-update {
+            margin-top: 8px;
+            padding-top: 6px;
+            border-top: 1px solid rgba(59, 130, 246, 0.1);
+            font-size: 9px;
+            color: var(--text-muted);
+            text-align: center;
+        }
+        
+        /* 附近服务信息面板 */
+        .nearby-info {
+            position: absolute; top: 240px; right: 20px; z-index: 1000;
+            background: linear-gradient(180deg, rgba(18, 28, 48, 0.96) 0%, rgba(8, 14, 26, 0.98) 100%);
+            backdrop-filter: blur(14px) saturate(1.15);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(59, 130, 246, 0.22);
+            padding: 12px;
+            box-shadow: var(--shadow-elevated), var(--glow-blue), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            display: none;
+            width: 240px;
+            max-height: 450px;
+            overflow-y: auto;
+        }
+        .nearby-info.visible {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+        .nearby-info h3 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .nearby-tabs {
+            display: flex;
+            margin-bottom: 10px;
+            border-bottom: 1px solid rgba(59, 130, 246, 0.1);
+            padding-bottom: 6px;
+        }
+        .nearby-tab {
+            flex: 1;
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 10px;
+            padding: 4px 6px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .nearby-tab:hover {
+            background: rgba(59, 130, 246, 0.1);
+            color: var(--primary-color);
+        }
+        .nearby-tab.active {
+            background: rgba(59, 130, 246, 0.2);
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        .nearby-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .nearby-item {
+            margin-bottom: 8px;
+            padding: 8px;
+            border-radius: 6px;
+            background: rgba(59, 130, 246, 0.05);
+            border: 1px solid rgba(59, 130, 246, 0.1);
+        }
+        .nearby-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+        .nearby-item-header h4 {
+            margin: 0;
+            font-size: 12px;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .nearby-distance {
+            font-size: 9px;
+            color: var(--primary-color);
+            background: rgba(59, 130, 246, 0.1);
+            padding: 2px 6px;
+            border-radius: 8px;
+        }
+        .nearby-item-info {
+            font-size: 10px;
+            color: var(--text-secondary);
+        }
+        .nearby-address {
+            margin: 0 0 4px 0;
+            line-height: 1.3;
+        }
+        .nearby-rating {
+            margin-bottom: 4px;
+        }
+        .rating-star {
+            color: #fbbf24;
+            margin-right: 2px;
+        }
+        .nearby-status {
+            padding: 2px 6px;
+            border-radius: 8px;
+            font-size: 8px;
+            font-weight: 600;
+        }
+        .nearby-status.open {
+            background: rgba(34, 197, 94, 0.1);
+            color: #4ade80;
+        }
+        .nearby-status.24h {
+            background: rgba(96, 165, 250, 0.1);
+            color: #60a5fa;
+        }
+        .nearby-footer {
+            margin-top: 10px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(59, 130, 246, 0.1);
+        }
+        .nearby-footer .update-time {
+            font-size: 9px;
+            color: var(--text-secondary);
+        }
+        
+        /* 附近服务标记样式 */
+        .nearby-marker {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(59, 130, 246, 0.9);
+            border: 2px solid #ffffff;
+            border-radius: 50%;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            transition: all 0.2s ease;
+        }
+        .nearby-marker:hover {
+            transform: scale(1.1);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.6);
+        }
+        .marker-content {
+            font-size: 16px;
+            line-height: 1;
+        }
+        .popup-content {
+            min-width: 200px;
+        }
+        .popup-content h3 {
+            margin: 0 0 8px 0;
+            font-size: 14px;
+            color: #1a202c;
+            font-weight: 600;
+        }
+        .popup-content p {
+            margin: 4px 0;
+            font-size: 12px;
+            color: #4a5568;
+        }
+        
+        /* 车辆状态信息面板 */
+        .vehicle-status-info {
+            position: absolute; top: 240px; right: 20px; z-index: 1000;
+            background: linear-gradient(180deg, rgba(18, 28, 48, 0.96) 0%, rgba(8, 14, 26, 0.98) 100%);
+            backdrop-filter: blur(14px) saturate(1.15);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(59, 130, 246, 0.22);
+            padding: 12px;
+            box-shadow: var(--shadow-elevated), var(--glow-blue), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            display: none;
+            width: 260px;
+            max-height: 480px;
+            overflow-y: auto;
+        }
+        .vehicle-status-info.visible {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+        .vehicle-status-info h3 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .vehicle-section {
+            margin-bottom: 12px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(59, 130, 246, 0.1);
+        }
+        .vehicle-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+        .vehicle-section h4 {
+            margin: 0 0 8px 0;
+            font-size: 12px;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        .vehicle-section h5 {
+            margin: 8px 0 6px 0;
+            font-size: 10px;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .score-display {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 10px;
+        }
+        .score-circle {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(59, 130, 246, 0.1) 100%);
+            border: 2px solid rgba(59, 130, 246, 0.4);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+        }
+        .score-value {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--primary-color);
+        }
+        .score-label {
+            font-size: 8px;
+            color: var(--text-secondary);
+        }
+        .score-level {
+            font-size: 14px;
+            font-weight: 600;
+            color: #4ade80;
+        }
+        .habits-list {
+            margin-bottom: 8px;
+        }
+        .habit-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 8px;
+            border-radius: 4px;
+            background: rgba(59, 130, 246, 0.05);
+            margin-bottom: 4px;
+            font-size: 10px;
+        }
+        .habit-item.good {
+            border-left: 2px solid #4ade80;
+        }
+        .habit-item.normal {
+            border-left: 2px solid #fbbf24;
+        }
+        .habit-item.warning {
+            border-left: 2px solid #fb7185;
+        }
+        .habit-type {
+            flex: 1;
+            color: var(--text-color);
+        }
+        .habit-count {
+            flex: 1;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+        .habit-trend {
+            flex: 1;
+            text-align: right;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        .suggestions {
+            background: rgba(59, 130, 246, 0.08);
+            padding: 8px;
+            border-radius: 6px;
+        }
+        .suggestions ul {
+            margin: 0;
+            padding-left: 16px;
+            font-size: 9px;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+        .health-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+        .health-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 8px;
+            border-radius: 6px;
+            background: rgba(59, 130, 246, 0.05);
+            border: 1px solid rgba(59, 130, 246, 0.1);
+        }
+        .health-icon {
+            font-size: 20px;
+            margin-bottom: 4px;
+        }
+        .health-name {
+            font-size: 10px;
+            color: var(--text-color);
+            margin-bottom: 2px;
+            font-weight: 600;
+        }
+        .health-status {
+            font-size: 8px;
+            color: #4ade80;
+            font-weight: 600;
+        }
+        .safety-alerts {
+            margin-bottom: 8px;
+        }
+        .safety-alert {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 8px;
+            border-radius: 4px;
+            background: rgba(59, 130, 246, 0.05);
+            margin-bottom: 4px;
+            font-size: 10px;
+        }
+        .safety-alert.normal {
+            border-left: 2px solid #4ade80;
+        }
+        .safety-alert.low {
+            border-left: 2px solid #fbbf24;
+        }
+        .safety-alert.high {
+            border-left: 2px solid #fb7185;
+        }
+        .alert-type {
+            flex: 1;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .alert-message {
+            flex: 2;
+            color: var(--text-secondary);
+        }
+        .check-info {
+            display: flex;
+            justify-content: space-between;
+            font-size: 9px;
+            color: var(--text-secondary);
+        }
+        
+        /* 保养提醒信息面板 */
+        .maintenance-info {
+            position: absolute; top: 240px; right: 20px; z-index: 1000;
+            background: linear-gradient(180deg, rgba(18, 28, 48, 0.96) 0%, rgba(8, 14, 26, 0.98) 100%);
+            backdrop-filter: blur(14px) saturate(1.15);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(59, 130, 246, 0.22);
+            padding: 12px;
+            box-shadow: var(--shadow-elevated), var(--glow-blue), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            display: none;
+            width: 260px;
+            max-height: 480px;
+            overflow-y: auto;
+        }
+        .maintenance-info.visible {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+        .maintenance-info h3 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .maintenance-section {
+            margin-bottom: 12px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(59, 130, 246, 0.1);
+        }
+        .maintenance-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+        .maintenance-section h4 {
+            margin: 0 0 8px 0;
+            font-size: 12px;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        .maintenance-list {
+            margin-bottom: 8px;
+        }
+        .maintenance-item {
+            padding: 8px;
+            border-radius: 6px;
+            background: rgba(59, 130, 246, 0.05);
+            border: 1px solid rgba(59, 130, 246, 0.1);
+            margin-bottom: 6px;
+        }
+        .maintenance-item.priority-高 {
+            border-left: 3px solid #fb7185;
+        }
+        .maintenance-item.priority-中 {
+            border-left: 3px solid #fbbf24;
+        }
+        .maintenance-item.priority-低 {
+            border-left: 3px solid #4ade80;
+        }
+        .maintenance-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+        .maintenance-name {
+            font-size: 11px;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .maintenance-priority {
+            font-size: 8px;
+            padding: 2px 6px;
+            border-radius: 8px;
+            font-weight: 600;
+        }
+        .maintenance-priority.高 {
+            background: rgba(251, 113, 133, 0.2);
+            color: #fb7185;
+        }
+        .maintenance-priority.中 {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+        }
+        .maintenance-priority.低 {
+            background: rgba(74, 222, 128, 0.2);
+            color: #4ade80;
+        }
+        .maintenance-details {
+            display: flex;
+            justify-content: space-between;
+            font-size: 9px;
+            color: var(--text-secondary);
+        }
+        .history-list {
+            margin-bottom: 8px;
+        }
+        .history-item {
+            padding: 8px;
+            border-radius: 6px;
+            background: rgba(59, 130, 246, 0.05);
+            border: 1px solid rgba(59, 130, 246, 0.1);
+            margin-bottom: 6px;
+        }
+        .history-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+        .history-name {
+            font-size: 11px;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .history-cost {
+            font-size: 10px;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        .history-details {
+            display: flex;
+            justify-content: space-between;
+            font-size: 9px;
+            color: var(--text-secondary);
+        }
+        .ai-analysis {
+            background: rgba(59, 130, 246, 0.08);
+            padding: 8px;
+            border-radius: 6px;
+        }
+        .ai-analysis .prediction {
+            margin: 0 0 8px 0;
+            font-size: 10px;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .ai-analysis .recommendations {
+            margin: 0;
+            padding-left: 16px;
+            font-size: 9px;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+        
+        /* 燃油管理信息面板 */
+        .fuel-info {
+            position: absolute; top: 240px; right: 20px; z-index: 1000;
+            background: linear-gradient(180deg, rgba(18, 28, 48, 0.96) 0%, rgba(8, 14, 26, 0.98) 100%);
+            backdrop-filter: blur(14px) saturate(1.15);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(59, 130, 246, 0.22);
+            padding: 12px;
+            box-shadow: var(--shadow-elevated), var(--glow-blue), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            display: none;
+            width: 260px;
+            max-height: 480px;
+            overflow-y: auto;
+        }
+        .fuel-info.visible {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+        .fuel-info h3 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .fuel-section {
+            margin-bottom: 12px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(59, 130, 246, 0.1);
+        }
+        .fuel-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+        .fuel-section h4 {
+            margin: 0 0 8px 0;
+            font-size: 12px;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        .fuel-status {
+            margin-bottom: 8px;
+        }
+        .fuel-level {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .fuel-bar {
+            flex: 1;
+            height: 20px;
+            background: rgba(59, 130, 246, 0.1);
+            border-radius: 10px;
+            overflow: hidden;
+            margin-right: 12px;
+        }
+        .fuel-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4ade80 0%, #22c55e 100%);
+            transition: width 0.3s ease;
+        }
+        .fuel-percentage {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--primary-color);
+        }
+        .fuel-details {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+        .fuel-detail {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 8px;
+            border-radius: 6px;
+            background: rgba(59, 130, 246, 0.05);
+            border: 1px solid rgba(59, 130, 246, 0.1);
+        }
+        .fuel-label {
+            font-size: 9px;
+            color: var(--text-secondary);
+            margin-bottom: 2px;
+        }
+        .fuel-value {
+            font-size: 11px;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .fuel-history {
+            margin-bottom: 8px;
+        }
+        .fuel-record {
+            padding: 8px;
+            border-radius: 6px;
+            background: rgba(59, 130, 246, 0.05);
+            border: 1px solid rgba(59, 130, 246, 0.1);
+            margin-bottom: 6px;
+        }
+        .record-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+        .record-date {
+            font-size: 10px;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .record-cost {
+            font-size: 10px;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        .record-details {
+            display: flex;
+            justify-content: space-between;
+            font-size: 9px;
+            color: var(--text-secondary);
+        }
+        .fuel-alerts {
+            margin-bottom: 8px;
+        }
+        .fuel-alert {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 8px;
+            border-radius: 4px;
+            background: rgba(59, 130, 246, 0.05);
+            margin-bottom: 4px;
+            font-size: 10px;
+        }
+        .fuel-alert.normal {
+            border-left: 2px solid #4ade80;
+        }
+        .fuel-alert.low {
+            border-left: 2px solid #fbbf24;
+        }
+        .ai-insights {
+            background: rgba(59, 130, 246, 0.08);
+            padding: 8px;
+            border-radius: 6px;
+        }
+        .ai-insights .efficiency {
+            margin: 0 0 8px 0;
+            font-size: 10px;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .ai-insights .tips {
+            margin: 0;
+            padding-left: 16px;
+            font-size: 9px;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+        
+        /* 智能行程规划信息面板 */
+        .smart-trip-info {
+            position: absolute; top: 240px; right: 20px; z-index: 1000;
+            background: linear-gradient(180deg, rgba(18, 28, 48, 0.96) 0%, rgba(8, 14, 26, 0.98) 100%);
+            backdrop-filter: blur(14px) saturate(1.15);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(59, 130, 246, 0.22);
+            padding: 12px;
+            box-shadow: var(--shadow-elevated), var(--glow-blue), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            display: none;
+            width: 260px;
+            max-height: 480px;
+            overflow-y: auto;
+        }
+        .smart-trip-info.visible {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+        .smart-trip-info h3 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .smart-trip-section {
+            margin-bottom: 12px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(59, 130, 246, 0.1);
+        }
+        .smart-trip-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+        .smart-trip-section h4 {
+            margin: 0 0 8px 0;
+            font-size: 12px;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        .preference-options {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .preference-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .pref-label {
+            font-size: 10px;
+            color: var(--text-color);
+        }
+        .pref-buttons {
+            display: flex;
+            gap: 4px;
+        }
+        .pref-btn {
+            padding: 4px 8px;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            background: rgba(59, 130, 246, 0.1);
+            color: var(--text-secondary);
+            border-radius: 4px;
+            font-size: 9px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .pref-btn:hover {
+            background: rgba(59, 130, 246, 0.2);
+        }
+        .pref-btn.active {
+            background: rgba(59, 130, 246, 0.4);
+            color: var(--text-color);
+            border-color: rgba(59, 130, 246, 0.6);
+        }
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 10px;
+            color: var(--text-color);
+            cursor: pointer;
+        }
+        .checkbox-label input[type="checkbox"] {
+            width: 14px;
+            height: 14px;
+            accent-color: var(--primary-color);
+        }
+        .trip-history {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .trip-item {
+            padding: 8px;
+            border-radius: 6px;
+            background: rgba(59, 130, 246, 0.05);
+            border: 1px solid rgba(59, 130, 246, 0.1);
+        }
+        .trip-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+        .trip-date {
+            font-size: 9px;
+            color: var(--text-secondary);
+        }
+        .trip-route {
+            font-size: 10px;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .trip-details {
+            display: flex;
+            justify-content: space-between;
+            font-size: 9px;
+            color: var(--text-secondary);
+        }
+        .ai-recommendations {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .ai-rec-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 6px;
+            padding: 6px;
+            border-radius: 4px;
+            background: rgba(59, 130, 246, 0.08);
+        }
+        .rec-icon {
+            font-size: 12px;
+        }
+        .rec-text {
+            font-size: 9px;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+        
+        /* 智能充电/加油规划信息面板 */
+        .energy-plan-info {
+            position: absolute; top: 240px; right: 20px; z-index: 1000;
+            background: linear-gradient(180deg, rgba(18, 28, 48, 0.96) 0%, rgba(8, 14, 26, 0.98) 100%);
+            backdrop-filter: blur(14px) saturate(1.15);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(59, 130, 246, 0.22);
+            padding: 12px;
+            box-shadow: var(--shadow-elevated), var(--glow-blue), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            display: none;
+            width: 260px;
+            max-height: 480px;
+            overflow-y: auto;
+        }
+        .energy-plan-info.visible {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+        .energy-plan-info h3 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .energy-section {
+            margin-bottom: 12px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(59, 130, 246, 0.1);
+        }
+        .energy-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+        .energy-section h4 {
+            margin: 0 0 8px 0;
+            font-size: 12px;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        .energy-status {
+            margin-bottom: 8px;
+        }
+        .energy-level {
+            display: flex;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .energy-bar {
+            flex: 1;
+            height: 16px;
+            background: rgba(59, 130, 246, 0.1);
+            border-radius: 8px;
+            overflow: hidden;
+            margin-right: 10px;
+        }
+        .energy-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4ade80 0%, #22c55e 100%);
+            transition: width 0.3s ease;
+        }
+        .energy-percentage {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--primary-color);
+        }
+        .energy-range {
+            font-size: 10px;
+            color: var(--text-secondary);
+        }
+        .station-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .station-item {
+            padding: 8px;
+            border-radius: 6px;
+            background: rgba(59, 130, 246, 0.05);
+            border: 1px solid rgba(59, 130, 246, 0.1);
+        }
+        .station-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+        .station-name {
+            font-size: 10px;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .station-type {
+            font-size: 14px;
+        }
+        .station-details {
+            display: flex;
+            justify-content: space-between;
+            font-size: 9px;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+        .station-price {
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        .station-rating {
+            font-size: 9px;
+            color: #fbbf24;
+        }
+        .price-trend {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px;
+            border-radius: 6px;
+            background: rgba(59, 130, 246, 0.05);
+        }
+        .price-trend.down {
+            border-left: 3px solid #4ade80;
+        }
+        .price-trend.up {
+            border-left: 3px solid #fb7185;
+        }
+        .price-trend.stable {
+            border-left: 3px solid #fbbf24;
+        }
+        .trend-icon {
+            font-size: 16px;
+            font-weight: 600;
+        }
+        .price-trend.down .trend-icon {
+            color: #4ade80;
+        }
+        .price-trend.up .trend-icon {
+            color: #fb7185;
+        }
+        .price-trend.stable .trend-icon {
+            color: #fbbf24;
+        }
+        .trend-text {
+            font-size: 10px;
+            color: var(--text-color);
+        }
+        .ai-suggestions {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .ai-suggestion-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 6px;
+            padding: 6px;
+            border-radius: 4px;
+            background: rgba(59, 130, 246, 0.08);
+        }
+        .suggestion-icon {
+            font-size: 12px;
+        }
+        .suggestion-text {
+            font-size: 9px;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+        
+        /* 智能停车场预约信息面板 */
+        .parking-reserve-info {
+            position: absolute; top: 240px; right: 20px; z-index: 1000;
+            background: linear-gradient(180deg, rgba(18, 28, 48, 0.96) 0%, rgba(8, 14, 26, 0.98) 100%);
+            backdrop-filter: blur(14px) saturate(1.15);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(59, 130, 246, 0.22);
+            padding: 12px;
+            box-shadow: var(--shadow-elevated), var(--glow-blue), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            display: none;
+            width: 260px;
+            max-height: 480px;
+            overflow-y: auto;
+        }
+        .parking-reserve-info.visible {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+        .parking-reserve-info h3 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .parking-reserve-section {
+            margin-bottom: 12px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(59, 130, 246, 0.1);
+        }
+        .parking-reserve-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+        .parking-reserve-section h4 {
+            margin: 0 0 8px 0;
+            font-size: 12px;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        .nearby-parking {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .parking-item {
+            padding: 10px;
+            border-radius: 8px;
+            background: rgba(59, 130, 246, 0.05);
+            border: 1px solid rgba(59, 130, 246, 0.1);
+        }
+        .parking-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .parking-name {
+            font-size: 11px;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .parking-rating {
+            font-size: 9px;
+            color: #fbbf24;
+        }
+        .parking-details {
+            display: flex;
+            justify-content: space-between;
+            font-size: 9px;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+        .parking-price {
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        .parking-availability {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+        .availability-bar {
+            flex: 1;
+            height: 8px;
+            background: rgba(59, 130, 246, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .availability-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4ade80 0%, #22c55e 100%);
+            transition: width 0.3s ease;
+        }
+        .availability-text {
+            font-size: 9px;
+            color: var(--text-secondary);
+            min-width: 50px;
+            text-align: right;
+        }
+        .parking-features {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 8px;
+        }
+        .feature-tag {
+            font-size: 8px;
+            padding: 2px 6px;
+            border-radius: 8px;
+            background: rgba(59, 130, 246, 0.15);
+            color: var(--primary-color);
+        }
+        .reserve-btn {
+            width: 100%;
+            padding: 6px;
+            border: none;
+            border-radius: 4px;
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.8) 0%, rgba(37, 99, 235, 0.8) 100%);
+            color: white;
+            font-size: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .reserve-btn:hover {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 1) 0%, rgba(37, 99, 235, 1) 100%);
+            transform: translateY(-1px);
+        }
+        .my-reservations {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .reservation-item {
+            padding: 8px;
+            border-radius: 6px;
+            background: rgba(59, 130, 246, 0.05);
+            border: 1px solid rgba(59, 130, 246, 0.1);
+        }
+        .reservation-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+        .reservation-parking {
+            font-size: 10px;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .reservation-status {
+            font-size: 8px;
+            padding: 2px 6px;
+            border-radius: 8px;
+            background: rgba(74, 222, 128, 0.2);
+            color: #4ade80;
+        }
+        .reservation-details {
+            display: flex;
+            justify-content: space-between;
+            font-size: 9px;
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="left-panel">
+            <h2>车主服务</h2>
+            <ul class="left-menu">
+                <li class="active" data-menu="nav">导航服务</li>
+                <li data-menu="traffic">实时路况</li>
+                <li data-menu="parking">停车场查询</li>
+                <li data-menu="weather">天气信息</li>
+                <li data-menu="ai-assistant">AI辅助</li>
+                <li data-menu="nearby">附近服务</li>
+            </ul>
+            
+            <div class="left-section">
+                <h3>车辆信息</h3>
+                <ul class="left-menu">
+                    <li data-menu="vehicle-status">车辆状态</li>
+                    <li data-menu="maintenance">保养提醒</li>
+                    <li data-menu="fuel">燃油管理</li>
+                </ul>
+            </div>
+            
+            <div class="left-section">
+                <h3>智能出行</h3>
+                <ul class="left-menu">
+                    <li data-menu="smart-trip">智能行程规划</li>
+                    <li data-menu="energy-plan">智能充电/加油规划</li>
+                    <li data-menu="parking-reserve">智能停车场预约</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="map-container">
+            <div class="header">
+                <div class="header-brand">智慧交通系统 - 车主端</div>
+                <div class="header-right">
+                    <button class="nav-btn" id="switchToGov">切换到政府端</button>
+                </div>
+            </div>
+            
+            <div class="search-panel">
+                <input type="text" class="search-input" id="destinationInput" placeholder="输入目的地...">
+                <button class="search-btn" id="searchBtn">搜索</button>
+            </div>
+            
+            <div class="map-wrap" id="vehicle-map-wrap">
+                <div id="map"></div>
+            </div>
+            
+            <div class="route-info" id="routeInfo">
+                <h3>导航路线 - 观音桥</h3>
+                <div class="route-details">
+                    <div class="route-details-item">
+                        <span class="route-details-label">距离</span>
+                        <span class="route-details-value" id="routeDistance">0 公里</span>
+                    </div>
+                    <div class="route-details-item">
+                        <span class="route-details-label">预计时间</span>
+                        <span class="route-details-value" id="routeTime">0 分钟</span>
+                    </div>
+                    <div class="route-details-item">
+                        <span class="route-details-label">交通状况</span>
+                        <span class="route-details-value" id="trafficStatus">畅通</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 路况图例 -->
+            <div class="traffic-legend" id="trafficLegend">
+                <h4>实时路况</h4>
+                <div class="traffic-legend-item">
+                    <div class="traffic-legend-color smooth"></div>
+                    <span>畅通 (≥ 60 km/h)</span>
+                </div>
+                <div class="traffic-legend-item">
+                    <div class="traffic-legend-color light"></div>
+                    <span>轻度拥堵 (30-60 km/h)</span>
+                </div>
+                <div class="traffic-legend-item">
+                    <div class="traffic-legend-color heavy"></div>
+                    <span>中度拥堵 (15-30 km/h)</span>
+                </div>
+                <div class="traffic-legend-item">
+                    <div class="traffic-legend-color congested"></div>
+                    <span>严重拥堵 (< 15 km/h)</span>
+                </div>
+            </div>
+            
+            <!-- 区域拥堵提示 -->
+            <div class="area-congestion" id="areaCongestion">
+                <h4>区域拥堵指数</h4>
+                <div class="area-congestion-item">
+                    <span>观音桥商圈</span>
+                    <span class="area-congestion-level high" id="guanyinqiaoLevel">严重拥堵</span>
+                </div>
+                <div class="area-congestion-item">
+                    <span>北滨路沿线</span>
+                    <span class="area-congestion-level low" id="beibinLevel">畅通</span>
+                </div>
+                <div class="area-congestion-item">
+                    <span>红旗河沟区域</span>
+                    <span class="area-congestion-level low" id="hongqiLevel">畅通</span>
+                </div>
+                <div class="area-congestion-item">
+                    <span>华新街区域</span>
+                    <span class="area-congestion-level medium" id="huaxinLevel">中度拥堵</span>
+                </div>
+            </div>
+            
+            <!-- 停车场信息 -->
+            <div class="parking-info" id="parkingInfo">
+                <div id="parkingInfoContent">
+                    <!-- 停车场信息将通过JavaScript动态生成 -->
+                </div>
+            </div>
+            
+            <!-- 天气信息 -->
+            <div class="weather-info" id="weatherInfo">
+                <div id="weatherInfoContent">
+                    <!-- 天气信息将通过JavaScript动态生成 -->
+                </div>
+            </div>
+            
+            <!-- AI辅助信息 -->
+            <div class="ai-assistant-info" id="aiAssistantInfo">
+                <div id="aiAssistantInfoContent">
+                    <!-- AI辅助信息将通过JavaScript动态生成 -->
+                </div>
+            </div>
+            
+            <div class="nav-panel">
+                <button class="nav-btn active" id="navBtn">导航</button>
+                <button class="nav-btn" id="trafficBtn">路况</button>
+                <button class="nav-btn" id="parkingBtn">停车</button>
+                <button class="nav-btn" id="emergencyBtn">AI辅助</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    <script>
+        (function() {
+            const apiKey = 'P4Zcx8Ev043fM7NrIEr6';
+            const chongqingCoords = [29.563, 106.551];
+            const map = L.map('map', { zoomControl: false, preferCanvas: false }).setView(chongqingCoords, 11);
+            window.__vehicleMap = map;
+
+            function addCartoBase() {
+                return L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', {
+                    maxZoom: 20,
+                    maxNativeZoom: 20,
+                    subdomains: 'abcd',
+                    updateWhenIdle: true,
+                    keepBuffer: 3,
+                    detectRetina: false,
+                    attribution: '&copy; OSM &copy; <a href="https://carto.com/" target="_blank" rel="noopener">CARTO</a>'
+                });
+            }
+            var baseLayer = addCartoBase().addTo(map);
+             baseLayer.addTo(map);
+
+            function scheduleMapLayoutFix() {
+                requestAnimationFrame(function () { try { map.invalidateSize(); } catch (e) {} });
+                setTimeout(function () { try { map.invalidateSize(); } catch (e2) {} }, 120);
+                setTimeout(function () { try { map.invalidateSize({ animate: false }); } catch (e3) {} }, 400);
+            }
+            map.whenReady(scheduleMapLayoutFix);
+            window.addEventListener('resize', function () {
+                try { map.invalidateSize({ animate: false }); } catch (e4) {}
+            });
+            if (typeof ResizeObserver !== 'undefined') {
+                var mw = document.getElementById('vehicle-map-wrap');
+                if (mw) {
+                    var roTm = null;
+                    new ResizeObserver(function () {
+                        if (roTm) clearTimeout(roTm);
+                        roTm = setTimeout(function () {
+                            try { map.invalidateSize({ animate: false }); } catch (e5) {}
+                        }, 48);
+                    }).observe(mw);
+                }
+            }
+            window.addEventListener('message', function (e) {
+                if (!e.data || e.data.type !== 'TRAFFIC_UI') return;
+                if (e.data.action === 'invalidateMap') scheduleMapLayoutFix();
+            });
+
+            // 导航功能
+            document.getElementById('searchBtn').addEventListener('click', function() {
+                var destination = document.getElementById('destinationInput').value;
+                if (destination) {
+                    if (destination.includes('观音桥')) {
+                        // 观音桥坐标：29.5576, 106.5778
+                        var guanYinQiaoCoords = [29.5576, 106.5778];
+                        var currentCoords = [29.5630, 106.5516];
+                        
+                        // 显示加载状态
+                        document.getElementById('routeInfo').classList.add('visible');
+                        document.getElementById('routeDistance').textContent = '计算中...';
+                        document.getElementById('routeTime').textContent = '计算中...';
+                        document.getElementById('trafficStatus').textContent = '计算中...';
+                        document.querySelector('.route-info h3').textContent = '导航路线 - 观音桥';
+                        
+                        // 使用OSRM API获取真实路线
+                        var osrmUrl = `https://router.project-osrm.org/route/v1/driving/${currentCoords[1]},${currentCoords[0]};${guanYinQiaoCoords[1]},${guanYinQiaoCoords[0]}?overview=full&geometries=polyline6`;
+                        
+                        fetch(osrmUrl)
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+                                    var route = data.routes[0];
+                                    
+                                    // 解析路线几何数据
+                                    var geometry = route.geometry;
+                                    var decodedGeometry = decodePolyline(geometry);
+                                    
+                                    // 计算距离和时间
+                                    var distance = (route.distance / 1000).toFixed(1); // 转换为公里
+                                    var duration = Math.round(route.duration / 60); // 转换为分钟
+                                    
+                                    // 显示路线信息
+                                    document.getElementById('routeDistance').textContent = distance + ' 公里';
+                                    document.getElementById('routeTime').textContent = duration + ' 分钟';
+                                    
+                                    // 设置交通状况及颜色
+                                    var trafficStatusEl = document.getElementById('trafficStatus');
+                                    var trafficStatus = '正常';
+                                    var trafficClass = 'traffic-normal';
+                                    
+                                    // 根据平均速度判断交通状况
+                                    var avgSpeed = (route.distance / route.duration) * 3.6; // km/h
+                                    if (avgSpeed < 10) {
+                                        trafficStatus = '拥堵';
+                                        trafficClass = 'traffic-congested';
+                                    } else if (avgSpeed < 30) {
+                                        trafficStatus = '轻度拥堵';
+                                        trafficClass = 'traffic-heavy';
+                                    }
+                                    
+                                    trafficStatusEl.textContent = trafficStatus;
+                                    trafficStatusEl.className = 'route-details-value ' + trafficClass;
+                                    
+                                    // 绘制路线
+                                    var routeLine = L.polyline(decodedGeometry, { 
+                                        color: '#3b82f6', 
+                                        weight: 4,
+                                        opacity: 0.8,
+                                        dashArray: '5, 10',
+                                        lineJoin: 'round'
+                                    }).addTo(map);
+                                    
+                                    // 添加观音桥标记
+                                    var destinationIcon = L.divIcon({
+                                        className: 'destination-marker',
+                                        html: '<div style="width: 32px; height: 32px; border-radius: 50%; background: #10b981; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);">目</div>',
+                                        iconSize: [32, 32]
+                                    });
+                                    
+                                    L.marker(guanYinQiaoCoords, { icon: destinationIcon }).addTo(map);
+                                    
+                                    // 调整地图视角
+                                    map.fitBounds(routeLine.getBounds(), { padding: [50, 50] });
+                                    
+                                    // 添加路线动画
+                                    animateRoute(routeLine);
+                                }
+                            })
+                            .catch(error => {
+                                console.error('OSRM API error:', error);
+                                // 失败时使用默认路线
+                                document.getElementById('routeDistance').textContent = '8.5 公里';
+                                document.getElementById('routeTime').textContent = '22 分钟';
+                                document.getElementById('trafficStatus').textContent = '正常';
+                                document.getElementById('trafficStatus').className = 'route-details-value traffic-normal';
+                                
+                                // 默认路线
+                                var route = L.polyline([
+                                    [29.5630, 106.5516],  // 当前位置
+                                    [29.5650, 106.5550],  // 中间点1
+                                    [29.5600, 106.5650],  // 中间点2
+                                    [29.5576, 106.5778]   // 观音桥
+                                ], { 
+                                    color: '#3b82f6', 
+                                    weight: 4,
+                                    opacity: 0.8,
+                                    dashArray: '5, 10',
+                                    lineJoin: 'round'
+                                }).addTo(map);
+                                
+                                var destinationIcon = L.divIcon({
+                                    className: 'destination-marker',
+                                    html: '<div style="width: 32px; height: 32px; border-radius: 50%; background: #10b981; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);">目</div>',
+                                    iconSize: [32, 32]
+                                });
+                                
+                                L.marker(guanYinQiaoCoords, { icon: destinationIcon }).addTo(map);
+                                map.fitBounds(route.getBounds(), { padding: [50, 50] });
+                                animateRoute(route);
+                            });
+                    } else {
+                        // 其他目的地的模拟导航
+                        document.getElementById('routeInfo').classList.add('visible');
+                        document.getElementById('routeDistance').textContent = '5.2 公里';
+                        document.getElementById('routeTime').textContent = '15 分钟';
+                        document.getElementById('trafficStatus').textContent = '轻度拥堵';
+                        
+                        // 模拟路线
+                        var route = L.polyline([
+                            [29.5630, 106.5516],
+                            [29.5650, 106.5550],
+                            [29.5680, 106.5600],
+                            [29.5700, 106.5650]
+                        ], { color: '#3b82f6', weight: 4 }).addTo(map);
+                        
+                        map.fitBounds(route.getBounds());
+                    }
+                }
+            });
+            
+            // 解码OSRM polyline6格式
+            function decodePolyline(encoded) {
+                var index = 0, len = encoded.length;
+                var lat = 0, lng = 0;
+                var points = [];
+                
+                while (index < len) {
+                    var b, shift = 0, result = 0;
+                    do {
+                        b = encoded.charAt(index++).charCodeAt(0) - 63; // 63 is 0 in base64
+                        result |= (b & 0x1f) << shift;
+                        shift += 5;
+                    } while (b >= 0x20);
+                    var dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+                    lat += dlat;
+                    
+                    shift = 0; result = 0;
+                    do {
+                        b = encoded.charAt(index++).charCodeAt(0) - 63;
+                        result |= (b & 0x1f) << shift;
+                        shift += 5;
+                    } while (b >= 0x20);
+                    var dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+                    lng += dlng;
+                    
+                    points.push([lat / 1e6, lng / 1e6]);
+                }
+                
+                return points;
+            }
+            
+            // 路线动画效果
+            function animateRoute(route) {
+                var path = route.getLatLngs();
+                var totalLength = 0;
+                
+                // 计算总长度
+                for (var i = 1; i < path.length; i++) {
+                    totalLength += path[i-1].distanceTo(path[i]);
+                }
+                
+                var animatedLine = L.polyline([path[0]], { 
+                    color: '#10b981', 
+                    weight: 6,
+                    opacity: 1,
+                    lineCap: 'round'
+                }).addTo(map);
+                
+                var currentLength = 0;
+                var i = 1;
+                
+                var interval = setInterval(function() {
+                    if (i < path.length) {
+                        var segmentLength = path[i-1].distanceTo(path[i]);
+                        currentLength += segmentLength;
+                        
+                        var progress = currentLength / totalLength;
+                        if (progress <= 1) {
+                            var newLat = path[i-1].lat + (path[i].lat - path[i-1].lat) * progress;
+                            var newLng = path[i-1].lng + (path[i].lng - path[i-1].lng) * progress;
+                            
+                            var newPath = path.slice(0, i);
+                            newPath.push([newLat, newLng]);
+                            animatedLine.setLatLngs(newPath);
+                        } else {
+                            i++;
+                            currentLength = 0;
+                        }
+                    } else {
+                        clearInterval(interval);
+                    }
+                }, 50);
+            }
+            
+            // 切换到政府端
+            document.getElementById('switchToGov').addEventListener('click', function() {
+                window.location.href = 'dev_hub.html';
+            });
+            
+            // 停车场数据
+            var parkingData = [
+                {
+                    name: '观音桥步行街停车场',
+                    address: '重庆市江北区观音桥步行街',
+                    coordinates: [29.5576, 106.5778],
+                    totalSpaces: 500,
+                    availableSpaces: 120,
+                    price: '8元/小时',
+                    distance: '500米',
+                    status: '有空位'
+                },
+                {
+                    name: '北城天街停车场',
+                    address: '重庆市江北区北城天街',
+                    coordinates: [29.5590, 106.5750],
+                    totalSpaces: 350,
+                    availableSpaces: 45,
+                    price: '10元/小时',
+                    distance: '800米',
+                    status: '少量空位'
+                },
+                {
+                    name: '星光68广场停车场',
+                    address: '重庆市江北区洋河大道',
+                    coordinates: [29.5620, 106.5680],
+                    totalSpaces: 400,
+                    availableSpaces: 85,
+                    price: '12元/小时',
+                    distance: '1.2公里',
+                    status: '有空位'
+                },
+                {
+                    name: '红旗河沟停车场',
+                    address: '重庆市江北区红旗河沟立交',
+                    coordinates: [29.5680, 106.5400],
+                    totalSpaces: 280,
+                    availableSpaces: 15,
+                    price: '6元/小时',
+                    distance: '1.5公里',
+                    status: '即将满位'
+                },
+                {
+                    name: '北滨路停车场',
+                    address: '重庆市江北区北滨路',
+                    coordinates: [29.5640, 106.5480],
+                    totalSpaces: 200,
+                    availableSpaces: 60,
+                    price: '5元/小时',
+                    distance: '1.8公里',
+                    status: '有空位'
+                },
+                {
+                    name: '华新街停车场',
+                    address: '重庆市江北区华新街',
+                    coordinates: [29.5610, 106.5580],
+                    totalSpaces: 150,
+                    availableSpaces: 25,
+                    price: '7元/小时',
+                    distance: '1.0公里',
+                    status: '少量空位'
+                },
+                {
+                    name: '洋河停车场',
+                    address: '重庆市江北区洋河花园',
+                    coordinates: [29.5630, 106.5620],
+                    totalSpaces: 220,
+                    availableSpaces: 75,
+                    price: '6元/小时',
+                    distance: '900米',
+                    status: '有空位'
+                },
+                {
+                    name: '观音桥环道停车场',
+                    address: '重庆市江北区观音桥环道',
+                    coordinates: [29.5585, 106.5730],
+                    totalSpaces: 180,
+                    availableSpaces: 35,
+                    price: '9元/小时',
+                    distance: '600米',
+                    status: '少量空位'
+                },
+                {
+                    name: '建新东路停车场',
+                    address: '重庆市江北区建新东路',
+                    coordinates: [29.5600, 106.5730],
+                    totalSpaces: 160,
+                    availableSpaces: 40,
+                    price: '7元/小时',
+                    distance: '700米',
+                    status: '少量空位'
+                },
+                {
+                    name: '渝澳大道停车场',
+                    address: '重庆市江北区渝澳大道',
+                    coordinates: [29.5620, 106.5460],
+                    totalSpaces: 250,
+                    availableSpaces: 90,
+                    price: '5元/小时',
+                    distance: '1.3公里',
+                    status: '有空位'
+                },
+                {
+                    name: '大庆村立交停车场',
+                    address: '重庆市江北区大庆村立交',
+                    coordinates: [29.5650, 106.5400],
+                    totalSpaces: 300,
+                    availableSpaces: 110,
+                    price: '8元/小时',
+                    distance: '1.6公里',
+                    status: '有空位'
+                },
+                {
+                    name: '红石路停车场',
+                    address: '重庆市江北区红石路',
+                    coordinates: [29.5680, 106.5340],
+                    totalSpaces: 190,
+                    availableSpaces: 20,
+                    price: '6元/小时',
+                    distance: '1.9公里',
+                    status: '少量空位'
+                },
+                {
+                    name: '嘉陵江大桥停车场',
+                    address: '重庆市江北区嘉陵江大桥北桥头',
+                    coordinates: [29.5610, 106.5540],
+                    totalSpaces: 120,
+                    availableSpaces: 10,
+                    price: '10元/小时',
+                    distance: '400米',
+                    status: '即将满位'
+                },
+                {
+                    name: '建新北路停车场',
+                    address: '重庆市江北区建新北路',
+                    coordinates: [29.5575, 106.5630],
+                    totalSpaces: 260,
+                    availableSpaces: 65,
+                    price: '8元/小时',
+                    distance: '750米',
+                    status: '有空位'
+                },
+                {
+                    name: '红黄路停车场',
+                    address: '重庆市江北区红黄路',
+                    coordinates: [29.5700, 106.5420],
+                    totalSpaces: 210,
+                    availableSpaces: 50,
+                    price: '7元/小时',
+                    distance: '1.1公里',
+                    status: '少量空位'
+                }
+            ];
+            
+            // 路况数据 - 基于真实重庆地图道路网络
+            var trafficData = [
+                // 核心区域道路
+                {
+                    name: '嘉陵江大桥',
+                    path: [[29.5630, 106.5516], [29.5610, 106.5540], [29.5590, 106.5570], [29.5580, 106.5600]],
+                    speed: 28, // km/h
+                    status: '中度拥堵'
+                },
+                {
+                    name: '建新北路',
+                    path: [[29.5580, 106.5600], [29.5575, 106.5630], [29.5570, 106.5660], [29.5565, 106.5690], [29.5560, 106.5720]],
+                    speed: 42, // km/h
+                    status: '轻度拥堵'
+                },
+                {
+                    name: '观音桥步行街',
+                    path: [[29.5560, 106.5720], [29.5565, 106.5740], [29.5570, 106.5760], [29.5576, 106.5778]],
+                    speed: 15, // km/h
+                    status: '严重拥堵'
+                },
+                
+                // 周边主要道路
+                {
+                    name: '北滨路',
+                    path: [[29.5630, 106.5516], [29.5640, 106.5490], [29.5650, 106.5470], [29.5660, 106.5450], [29.5670, 106.5430]],
+                    speed: 58, // km/h
+                    status: '轻度拥堵'
+                },
+                {
+                    name: '红旗河沟立交',
+                    path: [[29.5670, 106.5430], [29.5680, 106.5410], [29.5690, 106.5390], [29.5700, 106.5370]],
+                    speed: 65, // km/h
+                    status: '畅通'
+                },
+                
+                // 区域道路网络
+                {
+                    name: '红黄路',
+                    path: [[29.5690, 106.5390], [29.5700, 106.5420], [29.5710, 106.5450], [29.5720, 106.5480]],
+                    speed: 35, // km/h
+                    status: '轻度拥堵'
+                },
+                {
+                    name: '洋河大道',
+                    path: [[29.5650, 106.5470], [29.5640, 106.5500], [29.5630, 106.5530], [29.5620, 106.5560]],
+                    speed: 48, // km/h
+                    status: '轻度拥堵'
+                },
+                {
+                    name: '华新街',
+                    path: [[29.5620, 106.5560], [29.5610, 106.5590], [29.5600, 106.5620], [29.5590, 106.5650]],
+                    speed: 22, // km/h
+                    status: '中度拥堵'
+                },
+                {
+                    name: '观音桥环道',
+                    path: [[29.5576, 106.5778], [29.5580, 106.5750], [29.5585, 106.5730], [29.5590, 106.5710]],
+                    speed: 18, // km/h
+                    status: '中度拥堵'
+                },
+                {
+                    name: '建新东路',
+                    path: [[29.5590, 106.5710], [29.5600, 106.5730], [29.5610, 106.5750], [29.5620, 106.5770]],
+                    speed: 32, // km/h
+                    status: '轻度拥堵'
+                },
+                
+                // 扩展区域道路
+                {
+                    name: '渝澳大道',
+                    path: [[29.5600, 106.5500], [29.5610, 106.5480], [29.5620, 106.5460], [29.5630, 106.5440]],
+                    speed: 52, // km/h
+                    status: '轻度拥堵'
+                },
+                {
+                    name: '大庆村立交',
+                    path: [[29.5630, 106.5440], [29.5640, 106.5420], [29.5650, 106.5400], [29.5660, 106.5380]],
+                    speed: 60, // km/h
+                    status: '畅通'
+                },
+                {
+                    name: '红石路',
+                    path: [[29.5660, 106.5380], [29.5670, 106.5360], [29.5680, 106.5340], [29.5690, 106.5320]],
+                    speed: 45, // km/h
+                    status: '轻度拥堵'
+                }
+            ];
+            
+            // 路况图层
+            var trafficLayer = L.layerGroup().addTo(map);
+            
+            // 停车场图层
+            var parkingLayer = L.layerGroup().addTo(map);
+            
+            // 天气数据
+            var weatherData = {
+                current: {
+                    temperature: 28,
+                    weather: '晴',
+                    humidity: 65,
+                    windSpeed: 12,
+                    windDirection: '东南风',
+                    visibility: 15,
+                    pressure: 1013,
+                    updateTime: new Date().toLocaleTimeString()
+                },
+                forecast: [
+                    { day: '今天', date: '4月4日', weather: '晴', high: 30, low: 22, icon: '☀️' },
+                    { day: '明天', date: '4月5日', weather: '多云', high: 29, low: 21, icon: '⛅' },
+                    { day: '后天', date: '4月6日', weather: '小雨', high: 26, low: 20, icon: '🌧️' },
+                    { day: '周四', date: '4月7日', weather: '中雨', high: 24, low: 19, icon: '🌧️' },
+                    { day: '周五', date: '4月8日', weather: '多云', high: 27, low: 20, icon: '⛅' }
+                ]
+            };
+            
+            // AI辅助数据
+            var aiAssistantData = {
+                violations: [
+                    { location: '观音桥步行街路口', type: '违停', risk: '高', coordinates: [29.5576, 106.5778], distance: '500米' },
+                    { location: '北城天街门口', type: '压线', risk: '中', coordinates: [29.5590, 106.5750], distance: '800米' },
+                    { location: '红旗河沟立交桥下', type: '超速', risk: '高', coordinates: [29.5680, 106.5400], distance: '1.5公里' },
+                    { location: '建新北路与华新街交叉口', type: '闯红灯', risk: '高', coordinates: [29.5575, 106.5630], distance: '750米' }
+                ],
+                dangers: [
+                    { location: '嘉陵江大桥北桥头', type: '急弯', risk: '高', coordinates: [29.5610, 106.5540], distance: '400米' },
+                    { location: '北滨路下坡路段', type: '长下坡', risk: '中', coordinates: [29.5640, 106.5480], distance: '1.8公里' },
+                    { location: '洋河大道施工路段', type: '施工', risk: '高', coordinates: [29.5630, 106.5620], distance: '900米' },
+                    { location: '红石路湿滑路段', type: '湿滑', risk: '中', coordinates: [29.5680, 106.5340], distance: '1.9公里' }
+                ],
+                routes: [
+                    { name: '推荐路线1', description: '经建新北路-观音桥步行街', distance: '2.5公里', time: '8分钟', traffic: '畅通', priority: '高' },
+                    { name: '推荐路线2', description: '经北滨路-红旗河沟', distance: '3.2公里', time: '10分钟', traffic: '轻度拥堵', priority: '中' },
+                    { name: '推荐路线3', description: '经渝澳大道-洋河大道', distance: '4.1公里', time: '12分钟', traffic: '畅通', priority: '低' }
+                ]
+            };
+            
+            // 获取路况颜色
+            function getTrafficColor(speed) {
+                if (speed >= 60) return '#4ade80'; // 畅通
+                if (speed >= 30) return '#fbbf24'; // 轻度拥堵
+                if (speed >= 15) return '#f97316'; // 中度拥堵
+                return '#fb7185'; // 严重拥堵
+            }
+            
+            // 显示路况 - 使用圆形背景圈表示
+            function showTraffic() {
+                // 清除现有路况
+                trafficLayer.clearLayers();
+                
+                // 按区域分组计算平均拥堵情况
+                var areaData = {};
+                trafficData.forEach(function(segment) {
+                    var areaName = segment.name.includes('观音桥') ? '观音桥商圈' :
+                                   segment.name.includes('北滨路') ? '北滨路沿线' :
+                                   segment.name.includes('红旗河沟') ? '红旗河沟区域' :
+                                   segment.name.includes('华新街') ? '华新街区域' :
+                                   segment.name.includes('嘉陵江大桥') ? '嘉陵江大桥' :
+                                   segment.name.includes('建新北路') ? '建新北路' :
+                                   segment.name.includes('红黄路') ? '红黄路' :
+                                   segment.name.includes('洋河大道') ? '洋河大道' :
+                                   segment.name.includes('观音桥环道') ? '观音桥环道' :
+                                   segment.name.includes('建新东路') ? '建新东路' :
+                                   segment.name.includes('渝澳大道') ? '渝澳大道' :
+                                   segment.name.includes('大庆村立交') ? '大庆村立交' :
+                                   segment.name.includes('红石路') ? '红石路' : '其他区域';
+                    
+                    if (!areaData[areaName]) {
+                        areaData[areaName] = { speeds: [], center: segment.path[Math.floor(segment.path.length / 2)] };
+                    }
+                    areaData[areaName].speeds.push(segment.speed);
+                });
+                
+                // 为每个区域绘制圆形背景圈
+                Object.keys(areaData).forEach(function(areaName) {
+                    var area = areaData[areaName];
+                    var avgSpeed = area.speeds.reduce((sum, s) => sum + s, 0) / area.speeds.length;
+                    var color = getTrafficColor(avgSpeed);
+                    var status = avgSpeed >= 60 ? '畅通' : avgSpeed >= 30 ? '轻度拥堵' : avgSpeed >= 15 ? '中度拥堵' : '严重拥堵';
+                    
+                    // 绘制圆形背景圈
+                    var circle = L.circle(area.center, {
+                        color: color,
+                        fillColor: color,
+                        fillOpacity: 0.4,
+                        radius: 400, // 400米半径，避免重合
+                        weight: 2,
+                        className: 'traffic-circle'
+                    }).addTo(trafficLayer);
+                    
+
+                    
+                    // 添加弹窗
+                    circle.bindPopup(`
+                        <div class="traffic-popup">
+                            <h5>${areaName}</h5>
+                            <p>平均速度: ${Math.round(avgSpeed)} km/h</p>
+                            <p>交通状况: ${status}</p>
+                            <p>覆盖路段: ${area.speeds.length} 条</p>
+                            <p>更新时间: ${new Date().toLocaleTimeString()}</p>
+                        </div>
+                    `);
+                });
+                
+                // 显示路况图例和区域拥堵提示
+                document.getElementById('trafficLegend').classList.add('visible');
+                document.getElementById('areaCongestion').classList.add('visible');
+                
+                // 开始实时路况更新
+                startTrafficUpdate();
+            }
+            
+            // 隐藏路况
+            function hideTraffic() {
+                trafficLayer.clearLayers();
+                document.getElementById('trafficLegend').classList.remove('visible');
+                document.getElementById('areaCongestion').classList.remove('visible');
+                
+                // 停止实时路况更新
+                stopTrafficUpdate();
+            }
+            
+            // 显示停车场
+            function showParking() {
+                // 清除现有停车场标记
+                parkingLayer.clearLayers();
+                
+                // 清除其他功能的痕迹
+                hideTraffic();
+                document.getElementById('routeInfo').classList.remove('visible');
+                
+                // 为每个停车场添加标记
+                parkingData.forEach(function(parking) {
+                    // 计算剩余车位比例
+                    var availableRatio = parking.availableSpaces / parking.totalSpaces;
+                    var color = availableRatio > 0.3 ? '#4ade80' : availableRatio > 0.1 ? '#fbbf24' : '#fb7185';
+                    
+                    // 创建停车场标记图标
+                    var parkingIcon = L.divIcon({
+                        className: 'parking-marker',
+                        html: `<div style="background: ${color}; width: 24px; height: 24px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; color: white;">P</div>`,
+                        iconSize: [24, 24],
+                        iconAnchor: [12, 12]
+                    });
+                    
+                    // 添加停车场标记
+                    var marker = L.marker(parking.coordinates, { icon: parkingIcon }).addTo(parkingLayer);
+                    
+                    // 添加弹窗
+                    marker.bindPopup(`
+                        <div class="parking-popup">
+                            <h5>${parking.name}</h5>
+                            <p>地址: ${parking.address}</p>
+                            <p>总车位: ${parking.totalSpaces} 个</p>
+                            <p>剩余车位: ${parking.availableSpaces} 个</p>
+                            <p>价格: ${parking.price}</p>
+                            <p>距离: ${parking.distance}</p>
+                            <p>状态: <span style="color: ${color};">${parking.status}</span></p>
+                            <p>更新时间: ${new Date().toLocaleTimeString()}</p>
+                        </div>
+                    `);
+                });
+                
+                // 显示停车场信息面板
+                showParkingInfo();
+            }
+            
+            // 隐藏停车场
+            function hideParking() {
+                parkingLayer.clearLayers();
+                document.getElementById('parkingInfo').classList.remove('visible');
+            }
+            
+            // 显示停车场信息面板
+            function showParkingInfo() {
+                var parkingInfoHTML = `
+                    <h4>附近停车场</h4>
+                `;
+                
+                // 按距离排序停车场
+                var sortedParking = [...parkingData].sort(function(a, b) {
+                    var distanceA = parseFloat(a.distance);
+                    var distanceB = parseFloat(b.distance);
+                    return distanceA - distanceB;
+                });
+                
+                sortedParking.forEach(function(parking) {
+                    var availableRatio = parking.availableSpaces / parking.totalSpaces;
+                    var color = availableRatio > 0.3 ? '#4ade80' : availableRatio > 0.1 ? '#fbbf24' : '#fb7185';
+                    
+                    parkingInfoHTML += `
+                        <div class="parking-info-item">
+                            <div class="parking-name">${parking.name}</div>
+                            <div class="parking-details">
+                                <span class="parking-distance">${parking.distance}</span>
+                                <span class="parking-spaces" style="color: ${color};">${parking.availableSpaces}/${parking.totalSpaces}</span>
+                                <span class="parking-price">${parking.price}</span>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                document.getElementById('parkingInfoContent').innerHTML = parkingInfoHTML;
+                document.getElementById('parkingInfo').classList.add('visible');
+            }
+            
+            // 显示天气信息
+            function showWeather() {
+                // 清除其他功能的痕迹
+                hideTraffic();
+                hideParking();
+                document.getElementById('routeInfo').classList.remove('visible');
+                
+                // 显示天气信息面板
+                showWeatherInfo();
+            }
+            
+            // 显示天气信息面板
+            function showWeatherInfo() {
+                var weatherHTML = `
+                    <h4>当前天气</h4>
+                    <div class="weather-current">
+                        <div class="weather-icon">${weatherData.current.weather === '晴' ? '☀️' : weatherData.current.weather === '多云' ? '⛅' : '🌧️'}</div>
+                        <div class="weather-temp">${weatherData.current.temperature}°C</div>
+                        <div class="weather-desc">${weatherData.current.weather}</div>
+                    </div>
+                    <div class="weather-details">
+                        <div class="weather-detail-item">
+                            <span class="weather-detail-label">湿度</span>
+                            <span class="weather-detail-value">${weatherData.current.humidity}%</span>
+                        </div>
+                        <div class="weather-detail-item">
+                            <span class="weather-detail-label">风速</span>
+                            <span class="weather-detail-value">${weatherData.current.windSpeed}km/h</span>
+                        </div>
+                        <div class="weather-detail-item">
+                            <span class="weather-detail-label">风向</span>
+                            <span class="weather-detail-value">${weatherData.current.windDirection}</span>
+                        </div>
+                        <div class="weather-detail-item">
+                            <span class="weather-detail-label">能见度</span>
+                            <span class="weather-detail-value">${weatherData.current.visibility}km</span>
+                        </div>
+                        <div class="weather-detail-item">
+                            <span class="weather-detail-label">气压</span>
+                            <span class="weather-detail-value">${weatherData.current.pressure}hPa</span>
+                        </div>
+                    </div>
+                    <div class="weather-forecast">
+                        <h5>未来5天预报</h5>
+                `;
+                
+                weatherData.forecast.forEach(function(day) {
+                    weatherHTML += `
+                        <div class="forecast-item">
+                            <div class="forecast-day">${day.day}</div>
+                            <div class="forecast-date">${day.date}</div>
+                            <div class="forecast-icon">${day.icon}</div>
+                            <div class="forecast-weather">${day.weather}</div>
+                            <div class="forecast-temp">${day.low}°~${day.high}°</div>
+                        </div>
+                    `;
+                });
+                
+                weatherHTML += `
+                    </div>
+                    <div class="weather-update">更新时间: ${weatherData.current.updateTime}</div>
+                `;
+                
+                document.getElementById('weatherInfoContent').innerHTML = weatherHTML;
+                document.getElementById('weatherInfo').classList.add('visible');
+            }
+            
+            // 隐藏天气信息
+            function hideWeather() {
+                document.getElementById('weatherInfo').classList.remove('visible');
+            }
+            
+            // 显示AI辅助
+            function showAIAssistant() {
+                // 清除其他功能的痕迹
+                hideTraffic();
+                hideParking();
+                hideWeather();
+                document.getElementById('routeInfo').classList.remove('visible');
+                
+                // 显示AI辅助信息面板
+                showAIAssistantInfo();
+            }
+            
+            // 显示AI辅助信息面板
+            function showAIAssistantInfo() {
+                var aiHTML = `
+                    <h4>AI智能辅助</h4>
+                    
+                    <div class="ai-section">
+                        <h5>🚨 违章预警</h5>
+                `;
+                
+                aiAssistantData.violations.forEach(function(item) {
+                    var riskColor = item.risk === '高' ? '#fb7185' : '#fbbf24';
+                    aiHTML += `
+                        <div class="ai-alert-item violation">
+                            <div class="ai-alert-location">${item.location}</div>
+                            <div class="ai-alert-details">
+                                <span class="ai-alert-type">${item.type}</span>
+                                <span class="ai-alert-risk" style="color: ${riskColor};">风险:${item.risk}</span>
+                                <span class="ai-alert-distance">${item.distance}</span>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                aiHTML += `
+                    </div>
+                    
+                    <div class="ai-section">
+                        <h5>⚠️ 危险路段</h5>
+                `;
+                
+                aiAssistantData.dangers.forEach(function(item) {
+                    var riskColor = item.risk === '高' ? '#fb7185' : '#fbbf24';
+                    aiHTML += `
+                        <div class="ai-alert-item danger">
+                            <div class="ai-alert-location">${item.location}</div>
+                            <div class="ai-alert-details">
+                                <span class="ai-alert-type">${item.type}</span>
+                                <span class="ai-alert-risk" style="color: ${riskColor};">风险:${item.risk}</span>
+                                <span class="ai-alert-distance">${item.distance}</span>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                aiHTML += `
+                    </div>
+                    
+                    <div class="ai-section">
+                        <h5>🛣️ 推荐路线</h5>
+                `;
+                
+                aiAssistantData.routes.forEach(function(route) {
+                    var priorityColor = route.priority === '高' ? '#4ade80' : route.priority === '中' ? '#fbbf24' : '#94a3b8';
+                    var trafficColor = route.traffic === '畅通' ? '#4ade80' : route.traffic === '轻度拥堵' ? '#fbbf24' : '#fb7185';
+                    aiHTML += `
+                        <div class="ai-route-item">
+                            <div class="ai-route-name">${route.name}</div>
+                            <div class="ai-route-desc">${route.description}</div>
+                            <div class="ai-route-details">
+                                <span class="ai-route-distance">${route.distance}</span>
+                                <span class="ai-route-time">${route.time}</span>
+                                <span class="ai-route-traffic" style="color: ${trafficColor};">${route.traffic}</span>
+                                <span class="ai-route-priority" style="color: ${priorityColor};">优先级:${route.priority}</span>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                aiHTML += `
+                    </div>
+                    <div class="ai-update">更新时间: ${new Date().toLocaleTimeString()}</div>
+                `;
+                
+                document.getElementById('aiAssistantInfoContent').innerHTML = aiHTML;
+                document.getElementById('aiAssistantInfo').classList.add('visible');
+            }
+            
+            // 附近服务数据
+            var nearbyServices = {
+                gas: [
+                    { name: '中国石油加油站', address: '建新北路128号', distance: '500米', rating: 4.5, status: '营业中', coordinates: [29.5570, 106.5780] },
+                    { name: '壳牌加油站', address: '洋河大道99号', distance: '800米', rating: 4.8, status: '营业中', coordinates: [29.5620, 106.5720] },
+                    { name: '中石化加油站', address: '北滨路156号', distance: '1.2公里', rating: 4.3, status: '营业中', coordinates: [29.5610, 106.5580] }
+                ],
+                restaurant: [
+                    { name: '海底捞火锅', address: '观音桥步行街1号', distance: '300米', rating: 4.7, status: '营业中', coordinates: [29.5560, 106.5750] },
+                    { name: '肯德基', address: '北城天街8号', distance: '400米', rating: 4.2, status: '营业中', coordinates: [29.5570, 106.5740] },
+                    { name: '星巴克', address: '观音桥步行街10号', distance: '250米', rating: 4.6, status: '营业中', coordinates: [29.5555, 106.5755] }
+                ],
+                hospital: [
+                    { name: '重庆市中医院', address: '江北区盘溪70号', distance: '2.5公里', rating: 4.9, status: '24小时', coordinates: [29.5780, 106.5400] },
+                    { name: '江北区人民医院', address: '江北区嘉陵一村1号', distance: '1.8公里', rating: 4.4, status: '24小时', coordinates: [29.5630, 106.5600] },
+                    { name: '爱尔眼科医院', address: '江北区建新南路11号', distance: '1.2公里', rating: 4.5, status: '营业中', coordinates: [29.5600, 106.5650] }
+                ],
+                shopping: [
+                    { name: '北城天街', address: '观音桥步行街8号', distance: '350米', rating: 4.8, status: '营业中', coordinates: [29.5565, 106.5745] },
+                    { name: '茂业天地', address: '观音桥步行街19号', distance: '450米', rating: 4.6, status: '营业中', coordinates: [29.5575, 106.5760] },
+                    { name: '远东百货', address: '北城天街10号', distance: '400米', rating: 4.7, status: '营业中', coordinates: [29.5568, 106.5748] }
+                ]
+            };
+            
+            // 附近服务标记层
+            var nearbyMarkers = L.layerGroup().addTo(map);
+            
+            // 显示附近服务
+            function showNearbyServices() {
+                // 清除其他功能的痕迹
+                hideTraffic();
+                hideParking();
+                hideWeather();
+                hideAIAssistant();
+                document.getElementById('routeInfo').classList.remove('visible');
+                document.querySelector('.search-panel').style.display = 'none';
+                
+                // 清除现有的附近服务标记
+                nearbyMarkers.clearLayers();
+                
+                // 显示附近服务信息面板
+                showNearbyServicesInfo();
+            }
+            
+            // 隐藏附近服务
+            function hideNearbyServices() {
+                var nearbyPanel = document.getElementById('nearbyInfo');
+                if (nearbyPanel) {
+                    nearbyPanel.classList.remove('visible');
+                }
+                // 清除附近服务标记
+                nearbyMarkers.clearLayers();
+            }
+            
+            // 显示附近服务信息
+            function showNearbyServicesInfo() {
+                var nearbyInfo = document.getElementById('nearbyInfo');
+                if (!nearbyInfo) {
+                    // 创建附近服务信息面板
+                    nearbyInfo = document.createElement('div');
+                    nearbyInfo.id = 'nearbyInfo';
+                    nearbyInfo.className = 'nearby-info';
+                    document.querySelector('.map-container').appendChild(nearbyInfo);
+                }
+                
+                var html = `
+                    <h3>附近服务</h3>
+                    <div class="nearby-tabs">
+                        <button class="nearby-tab active" data-type="gas">加油站</button>
+                        <button class="nearby-tab" data-type="restaurant">餐厅</button>
+                        <button class="nearby-tab" data-type="hospital">医院</button>
+                        <button class="nearby-tab" data-type="shopping">商场</button>
+                    </div>
+                    <div class="nearby-content">
+                        <div class="nearby-list" id="nearbyList">
+                            ${renderNearbyServices('gas')}
+                        </div>
+                    </div>
+                    <div class="nearby-footer">
+                        <span class="update-time">更新时间: ${new Date().toLocaleTimeString()}</span>
+                    </div>
+                `;
+                
+                nearbyInfo.innerHTML = html;
+                nearbyInfo.classList.add('visible');
+                
+                // 添加标签切换事件
+                var nearbyTabs = document.querySelectorAll('.nearby-tab');
+                nearbyTabs.forEach(function(tab) {
+                    tab.addEventListener('click', function() {
+                        nearbyTabs.forEach(function(t) { t.classList.remove('active'); });
+                        this.classList.add('active');
+                        var type = this.dataset.type;
+                        document.getElementById('nearbyList').innerHTML = renderNearbyServices(type);
+                        // 清除现有的标记并重新添加
+                        nearbyMarkers.clearLayers();
+                    });
+                });
+            }
+            
+            // 渲染附近服务列表
+            function renderNearbyServices(type) {
+                var services = nearbyServices[type];
+                var html = '';
+                
+                services.forEach(function(service, index) {
+                    html += `
+                        <div class="nearby-item" data-index="${index}" data-type="${type}">
+                            <div class="nearby-item-header">
+                                <h4>${service.name}</h4>
+                                <span class="nearby-distance">${service.distance}</span>
+                            </div>
+                            <div class="nearby-item-info">
+                                <p class="nearby-address">${service.address}</p>
+                                <div class="nearby-rating">
+                                    <span class="rating-star">★</span>
+                                    <span>${service.rating}</span>
+                                </div>
+                                <span class="nearby-status ${service.status === '营业中' ? 'open' : '24h'}">${service.status}</span>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                // 添加点击事件
+                setTimeout(function() {
+                    var nearbyItems = document.querySelectorAll('.nearby-item');
+                    nearbyItems.forEach(function(item) {
+                        item.addEventListener('click', function() {
+                            var type = this.dataset.type;
+                            var index = parseInt(this.dataset.index);
+                            var service = nearbyServices[type][index];
+                            
+                            // 清除现有的标记
+                            nearbyMarkers.clearLayers();
+                            
+                            // 添加新的标记
+                            var marker = L.marker(service.coordinates, {
+                                icon: L.divIcon({
+                                    className: 'nearby-marker',
+                                    html: `<div class="marker-content">${getServiceIcon(type)}</div>`,
+                                    iconSize: [30, 30]
+                                })
+                            }).addTo(nearbyMarkers);
+                            
+                            // 添加弹出信息
+                            marker.bindPopup(`
+                                <div class="popup-content">
+                                    <h3>${service.name}</h3>
+                                    <p><strong>地址:</strong> ${service.address}</p>
+                                    <p><strong>距离:</strong> ${service.distance}</p>
+                                    <p><strong>评分:</strong> ★ ${service.rating}</p>
+                                    <p><strong>状态:</strong> ${service.status}</p>
+                                </div>
+                            `).openPopup();
+                            
+                            // 移动地图到标记位置
+                            map.setView(service.coordinates, 16);
+                        });
+                    });
+                }, 100);
+                
+                return html;
+            }
+            
+            // 获取服务类型图标
+            function getServiceIcon(type) {
+                switch(type) {
+                    case 'gas': return '⛽';
+                    case 'restaurant': return '🍽️';
+                    case 'hospital': return '🏥';
+                    case 'shopping': return '🛍️';
+                    default: return '📍';
+                }
+            }
+            
+            // 车辆状态数据 - AI分析开车习惯
+            var vehicleStatusData = {
+                drivingHabits: {
+                    score: 85,
+                    level: '优秀',
+                    analysis: [
+                        { type: '急刹车', count: 3, trend: '↓ 减少', status: 'good' },
+                        { type: '急加速', count: 5, trend: '↓ 减少', status: 'good' },
+                        { type: '超速', count: 2, trend: '→ 持平', status: 'normal' },
+                        { type: '疲劳驾驶', count: 0, trend: '↓ 减少', status: 'good' },
+                        { type: '分心驾驶', count: 1, trend: '↑ 增加', status: 'warning' }
+                    ],
+                    suggestions: [
+                        '保持平稳驾驶，避免急刹车和急加速',
+                        '注意休息，避免疲劳驾驶',
+                        '减少手机使用，专注驾驶'
+                    ]
+                },
+                vehicleHealth: {
+                    overall: '良好',
+                    engine: { status: '正常', temperature: 92, oilPressure: 3.5 },
+                    brakes: { status: '正常', padLife: '75%', discCondition: '良好' },
+                    tires: { status: '正常', pressure: '2.4bar', wear: '20%' },
+                    battery: { status: '正常', voltage: '12.6V', health: '95%' },
+                    transmission: { status: '正常', fluidLevel: '正常', temperature: 85 }
+                },
+                safetyMonitoring: {
+                    alerts: [
+                        { type: '胎压异常', severity: '低', message: '左前轮胎压略低，建议检查' },
+                        { type: '刹车系统', severity: '正常', message: '刹车系统运行正常' },
+                        { type: '发动机', severity: '正常', message: '发动机运行正常' }
+                    ],
+                    lastCheck: '2026-04-04 10:30',
+                    nextMaintenance: '2026-05-15'
+                }
+            };
+            
+            // 保养提醒数据 - 监控车辆状态
+            var maintenanceData = {
+                upcoming: [
+                    { item: '机油更换', mileage: 5000, dueMileage: 7500, daysLeft: 15, priority: '高' },
+                    { item: '轮胎更换', mileage: 30000, dueMileage: 40000, daysLeft: 45, priority: '中' },
+                    { item: '刹车片检查', mileage: 20000, dueMileage: 25000, daysLeft: 30, priority: '中' },
+                    { item: '空气滤芯', mileage: 15000, dueMileage: 20000, daysLeft: 60, priority: '低' }
+                ],
+                history: [
+                    { item: '常规保养', date: '2026-03-01', mileage: 4500, cost: '¥800' },
+                    { item: '轮胎平衡', date: '2026-02-15', mileage: 3000, cost: '¥200' },
+                    { item: '刹车检查', date: '2026-01-20', mileage: 1500, cost: '¥150' }
+                ],
+                aiAnalysis: {
+                    prediction: '下次保养预计在7500公里或2026-05-15',
+                    recommendations: [
+                        '建议提前进行机油更换，保持发动机性能',
+                        '轮胎磨损正常，建议定期检查胎压',
+                        '刹车系统状态良好，按计划保养即可'
+                    ]
+                }
+            };
+            
+            // 燃油管理数据 - 安全监控
+            var fuelData = {
+                current: {
+                    level: 65,
+                    range: 420,
+                    consumption: 8.2,
+                    avgConsumption: 7.8,
+                    fuelType: '92号汽油'
+                },
+                history: [
+                    { date: '2026-04-03', amount: 45, price: 7.8, cost: '¥351', mileage: 5200 },
+                    { date: '2026-03-28', amount: 50, price: 7.9, cost: '¥395', mileage: 4700 },
+                    { date: '2026-03-20', amount: 48, price: 7.8, cost: '¥374', mileage: 4200 }
+                ],
+                safetyAlerts: [
+                    { type: '油耗异常', message: '近期油耗略高，建议检查发动机', severity: '低' },
+                    { type: '燃油质量', message: '当前燃油质量良好', severity: '正常' }
+                ],
+                aiInsights: {
+                    efficiency: '燃油效率正常',
+                    tips: [
+                        '保持匀速行驶可降低油耗',
+                        '定期保养有助于提高燃油效率',
+                        '避免长时间怠速'
+                    ]
+                }
+            };
+            
+            // 显示车辆状态
+            function showVehicleStatus() {
+                hideTraffic();
+                hideParking();
+                hideWeather();
+                hideAIAssistant();
+                hideNearbyServices();
+                document.getElementById('routeInfo').classList.remove('visible');
+                document.querySelector('.search-panel').style.display = 'none';
+                
+                showVehicleStatusInfo();
+            }
+            
+            // 隐藏车辆状态
+            function hideVehicleStatus() {
+                var vehiclePanel = document.getElementById('vehicleStatusInfo');
+                if (vehiclePanel) {
+                    vehiclePanel.classList.remove('visible');
+                }
+            }
+            
+            // 显示车辆状态信息
+            function showVehicleStatusInfo() {
+                var vehicleInfo = document.getElementById('vehicleStatusInfo');
+                if (!vehicleInfo) {
+                    vehicleInfo = document.createElement('div');
+                    vehicleInfo.id = 'vehicleStatusInfo';
+                    vehicleInfo.className = 'vehicle-status-info';
+                    document.querySelector('.map-container').appendChild(vehicleInfo);
+                }
+                
+                var html = `
+                    <h3>车辆状态 - AI分析</h3>
+                    
+                    <div class="vehicle-section">
+                        <h4>驾驶习惯评分</h4>
+                        <div class="score-display">
+                            <div class="score-circle">
+                                <span class="score-value">${vehicleStatusData.drivingHabits.score}</span>
+                                <span class="score-label">分</span>
+                            </div>
+                            <div class="score-level">${vehicleStatusData.drivingHabits.level}</div>
+                        </div>
+                        
+                        <div class="habits-list">
+                            ${vehicleStatusData.drivingHabits.analysis.map(habit => `
+                                <div class="habit-item ${habit.status}">
+                                    <span class="habit-type">${habit.type}</span>
+                                    <span class="habit-count">${habit.count}次</span>
+                                    <span class="habit-trend">${habit.trend}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                        
+                        <div class="suggestions">
+                            <h5>AI建议</h5>
+                            <ul>
+                                ${vehicleStatusData.drivingHabits.suggestions.map(s => `<li>${s}</li>`).join('')}
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <div class="vehicle-section">
+                        <h4>车辆健康状态</h4>
+                        <div class="health-grid">
+                            <div class="health-item">
+                                <span class="health-icon">🔧</span>
+                                <span class="health-name">发动机</span>
+                                <span class="health-status">${vehicleStatusData.vehicleHealth.engine.status}</span>
+                            </div>
+                            <div class="health-item">
+                                <span class="health-icon">🛞</span>
+                                <span class="health-name">刹车</span>
+                                <span class="health-status">${vehicleStatusData.vehicleHealth.brakes.status}</span>
+                            </div>
+                            <div class="health-item">
+                                <span class="health-icon">⭕</span>
+                                <span class="health-name">轮胎</span>
+                                <span class="health-status">${vehicleStatusData.vehicleHealth.tires.status}</span>
+                            </div>
+                            <div class="health-item">
+                                <span class="health-icon">🔋</span>
+                                <span class="health-name">电池</span>
+                                <span class="health-status">${vehicleStatusData.vehicleHealth.battery.status}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="vehicle-section">
+                        <h4>安全监控</h4>
+                        <div class="safety-alerts">
+                            ${vehicleStatusData.safetyMonitoring.alerts.map(alert => `
+                                <div class="safety-alert ${alert.severity === '正常' ? 'normal' : alert.severity === '低' ? 'low' : 'high'}">
+                                    <span class="alert-type">${alert.type}</span>
+                                    <span class="alert-message">${alert.message}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <div class="check-info">
+                            <span>上次检查: ${vehicleStatusData.safetyMonitoring.lastCheck}</span>
+                            <span>下次保养: ${vehicleStatusData.safetyMonitoring.nextMaintenance}</span>
+                        </div>
+                    </div>
+                `;
+                
+                vehicleInfo.innerHTML = html;
+                vehicleInfo.classList.add('visible');
+            }
+            
+            // 显示保养提醒
+            function showMaintenance() {
+                hideTraffic();
+                hideParking();
+                hideWeather();
+                hideAIAssistant();
+                hideNearbyServices();
+                document.getElementById('routeInfo').classList.remove('visible');
+                document.querySelector('.search-panel').style.display = 'none';
+                
+                showMaintenanceInfo();
+            }
+            
+            // 隐藏保养提醒
+            function hideMaintenance() {
+                var maintenancePanel = document.getElementById('maintenanceInfo');
+                if (maintenancePanel) {
+                    maintenancePanel.classList.remove('visible');
+                }
+            }
+            
+            // 显示保养提醒信息
+            function showMaintenanceInfo() {
+                var maintenanceInfo = document.getElementById('maintenanceInfo');
+                if (!maintenanceInfo) {
+                    maintenanceInfo = document.createElement('div');
+                    maintenanceInfo.id = 'maintenanceInfo';
+                    maintenanceInfo.className = 'maintenance-info';
+                    document.querySelector('.map-container').appendChild(maintenanceInfo);
+                }
+                
+                var html = `
+                    <h3>保养提醒</h3>
+                    
+                    <div class="maintenance-section">
+                        <h4>即将到期保养</h4>
+                        <div class="maintenance-list">
+                            ${maintenanceData.upcoming.map(item => `
+                                <div class="maintenance-item priority-${item.priority.toLowerCase()}">
+                                    <div class="maintenance-header">
+                                        <span class="maintenance-name">${item.item}</span>
+                                        <span class="maintenance-priority ${item.priority.toLowerCase()}">${item.priority}</span>
+                                    </div>
+                                    <div class="maintenance-details">
+                                        <span>当前里程: ${item.mileage}km</span>
+                                        <span>建议里程: ${item.dueMileage}km</span>
+                                        <span>剩余天数: ${item.daysLeft}天</span>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    
+                    <div class="maintenance-section">
+                        <h4>保养历史</h4>
+                        <div class="history-list">
+                            ${maintenanceData.history.map(item => `
+                                <div class="history-item">
+                                    <div class="history-header">
+                                        <span class="history-name">${item.item}</span>
+                                        <span class="history-cost">${item.cost}</span>
+                                    </div>
+                                    <div class="history-details">
+                                        <span>日期: ${item.date}</span>
+                                        <span>里程: ${item.mileage}km</span>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    
+                    <div class="maintenance-section">
+                        <h4>AI分析</h4>
+                        <div class="ai-analysis">
+                            <p class="prediction">${maintenanceData.aiAnalysis.prediction}</p>
+                            <ul class="recommendations">
+                                ${maintenanceData.aiAnalysis.recommendations.map(r => `<li>${r}</li>`).join('')}
+                            </ul>
+                        </div>
+                    </div>
+                `;
+                
+                maintenanceInfo.innerHTML = html;
+                maintenanceInfo.classList.add('visible');
+            }
+            
+            // 显示燃油管理
+            function showFuelManagement() {
+                hideTraffic();
+                hideParking();
+                hideWeather();
+                hideAIAssistant();
+                hideNearbyServices();
+                document.getElementById('routeInfo').classList.remove('visible');
+                document.querySelector('.search-panel').style.display = 'none';
+                
+                showFuelInfo();
+            }
+            
+            // 隐藏燃油管理
+            function hideFuelManagement() {
+                var fuelPanel = document.getElementById('fuelInfo');
+                if (fuelPanel) {
+                    fuelPanel.classList.remove('visible');
+                }
+            }
+            
+            // 智能出行管理数据
+            var smartTripData = {
+                preferences: {
+                    routeType: 'balanced', // balanced, fast, eco, scenic
+                    avoidTolls: false,
+                    avoidHighways: false,
+                    maxWalkDistance: 500
+                },
+                currentTrip: {
+                    origin: '当前位置',
+                    destination: '',
+                    distance: 0,
+                    duration: 0,
+                    fuelCost: 0,
+                    alternatives: []
+                },
+                history: [
+                    { date: '2026-04-03', route: '家 → 公司', distance: '12.5km', duration: '25分钟', fuelCost: '¥8.5' },
+                    { date: '2026-04-02', route: '公司 → 观音桥', distance: '8.2km', duration: '18分钟', fuelCost: '¥5.6' },
+                    { date: '2026-04-01', route: '家 → 机场', distance: '28.6km', duration: '35分钟', fuelCost: '¥19.2' }
+                ],
+                aiRecommendations: [
+                    '根据您的历史数据，工作日早高峰建议选择北滨路绕行，可节省8分钟',
+                    '周末出行推荐经建新北路，路况较好且风景优美',
+                    '当前路线燃油效率较低，建议保持匀速行驶'
+                ]
+            };
+            
+            // 智能充电/加油规划数据
+            var energyPlanData = {
+                vehicleType: 'fuel', // fuel, electric, hybrid
+                currentLevel: 65,
+                range: 420,
+                stations: [
+                    { name: '中国石油观音桥站', type: 'gas', price: 7.85, distance: '1.2km', rating: 4.5, waitTime: '5分钟' },
+                    { name: '壳牌洋河大道站', type: 'gas', price: 7.92, distance: '2.1km', rating: 4.8, waitTime: '3分钟' },
+                    { name: '特来电充电站', type: 'electric', price: 1.25, distance: '0.8km', rating: 4.6, waitTime: '无需等待' },
+                    { name: '国家电网充电站', type: 'electric', price: 1.18, distance: '1.5km', rating: 4.7, waitTime: '2分钟' }
+                ],
+                priceTrend: 'down', // up, down, stable
+                priceChange: -0.05,
+                aiSuggestions: [
+                    '当前油价呈下降趋势，建议等待2天后再加油',
+                    '附近充电桩空闲率85%，无需预约',
+                    '根据您的行驶习惯，建议在剩余油量30%时加油'
+                ]
+            };
+            
+            // 智能停车场预约数据
+            var parkingReserveData = {
+                destination: '观音桥步行街',
+                nearbyParking: [
+                    { name: '北城天街停车场', distance: '350m', totalSpots: 500, available: 127, price: '¥5/小时', rating: 4.6, features: ['室内', '充电桩'] },
+                    { name: '茂业天地停车场', distance: '450m', totalSpots: 800, available: 234, price: '¥6/小时', rating: 4.5, features: ['室内', '24小时'] },
+                    { name: '远东百货停车场', distance: '400m', totalSpots: 600, available: 89, price: '¥4/小时', rating: 4.4, features: ['室外', '优惠'] },
+                    { name: '星光68停车场', distance: '280m', totalSpots: 300, available: 15, price: '¥8/小时', rating: 4.7, features: ['室内', 'VIP'] }
+                ],
+                myReservations: [
+                    { parking: '北城天街停车场', date: '2026-04-05', time: '14:00-16:00', spot: 'B2-156', status: '已确认' }
+                ],
+                aiRecommendations: [
+                    '预计14:00-16:00北城天街停车位紧张，建议提前预约',
+                    '远东百货停车场当前空闲率较高，且价格优惠',
+                    '您常去的北城天街停车场有会员优惠，可节省20%'
+                ]
+            };
+            
+            // 显示智能行程规划
+            function showSmartTrip() {
+                hideTraffic();
+                hideParking();
+                hideWeather();
+                hideAIAssistant();
+                hideNearbyServices();
+                hideVehicleStatus();
+                hideMaintenance();
+                hideFuelManagement();
+                hideEnergyPlan();
+                hideParkingReserve();
+                document.getElementById('routeInfo').classList.remove('visible');
+                document.querySelector('.search-panel').style.display = 'none';
+                
+                showSmartTripInfo();
+            }
+            
+            // 隐藏智能行程规划
+            function hideSmartTrip() {
+                var smartTripPanel = document.getElementById('smartTripInfo');
+                if (smartTripPanel) {
+                    smartTripPanel.classList.remove('visible');
+                }
+            }
+            
+            // 显示智能行程规划信息
+            function showSmartTripInfo() {
+                var smartTripInfo = document.getElementById('smartTripInfo');
+                if (!smartTripInfo) {
+                    smartTripInfo = document.createElement('div');
+                    smartTripInfo.id = 'smartTripInfo';
+                    smartTripInfo.className = 'smart-trip-info';
+                    document.querySelector('.map-container').appendChild(smartTripInfo);
+                }
+                
+                var html = `
+                    <h3>智能行程规划</h3>
+                    
+                    <div class="smart-trip-section">
+                        <h4>路线偏好设置</h4>
+                        <div class="preference-options">
+                            <div class="preference-item">
+                                <span class="pref-label">路线类型</span>
+                                <div class="pref-buttons">
+                                    <button class="pref-btn ${smartTripData.preferences.routeType === 'balanced' ? 'active' : ''}" data-type="balanced">均衡</button>
+                                    <button class="pref-btn ${smartTripData.preferences.routeType === 'fast' ? 'active' : ''}" data-type="fast">最快</button>
+                                    <button class="pref-btn ${smartTripData.preferences.routeType === 'eco' ? 'active' : ''}" data-type="eco">最省</button>
+                                    <button class="pref-btn ${smartTripData.preferences.routeType === 'scenic' ? 'active' : ''}" data-type="scenic">风景</button>
+                                </div>
+                            </div>
+                            <div class="preference-item">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" ${smartTripData.preferences.avoidTolls ? 'checked' : ''}>
+                                    <span>避开收费路段</span>
+                                </label>
+                            </div>
+                            <div class="preference-item">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" ${smartTripData.preferences.avoidHighways ? 'checked' : ''}>
+                                    <span>避开高速公路</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="smart-trip-section">
+                        <h4>历史行程</h4>
+                        <div class="trip-history">
+                            ${smartTripData.history.map(trip => `
+                                <div class="trip-item">
+                                    <div class="trip-header">
+                                        <span class="trip-date">${trip.date}</span>
+                                        <span class="trip-route">${trip.route}</span>
+                                    </div>
+                                    <div class="trip-details">
+                                        <span>${trip.distance}</span>
+                                        <span>${trip.duration}</span>
+                                        <span>${trip.fuelCost}</span>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    
+                    <div class="smart-trip-section">
+                        <h4>AI推荐</h4>
+                        <div class="ai-recommendations">
+                            ${smartTripData.aiRecommendations.map(rec => `
+                                <div class="ai-rec-item">
+                                    <span class="rec-icon">💡</span>
+                                    <span class="rec-text">${rec}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+                
+                smartTripInfo.innerHTML = html;
+                smartTripInfo.classList.add('visible');
+                
+                // 添加偏好按钮点击事件
+                var prefBtns = smartTripInfo.querySelectorAll('.pref-btn');
+                prefBtns.forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        prefBtns.forEach(function(b) { b.classList.remove('active'); });
+                        this.classList.add('active');
+                        smartTripData.preferences.routeType = this.dataset.type;
+                    });
+                });
+            }
+            
+            // 显示智能充电/加油规划
+            function showEnergyPlan() {
+                hideTraffic();
+                hideParking();
+                hideWeather();
+                hideAIAssistant();
+                hideNearbyServices();
+                hideVehicleStatus();
+                hideMaintenance();
+                hideFuelManagement();
+                hideSmartTrip();
+                hideParkingReserve();
+                document.getElementById('routeInfo').classList.remove('visible');
+                document.querySelector('.search-panel').style.display = 'none';
+                
+                showEnergyPlanInfo();
+            }
+            
+            // 隐藏智能充电/加油规划
+            function hideEnergyPlan() {
+                var energyPlanPanel = document.getElementById('energyPlanInfo');
+                if (energyPlanPanel) {
+                    energyPlanPanel.classList.remove('visible');
+                }
+            }
+            
+            // 显示智能充电/加油规划信息
+            function showEnergyPlanInfo() {
+                var energyPlanInfo = document.getElementById('energyPlanInfo');
+                if (!energyPlanInfo) {
+                    energyPlanInfo = document.createElement('div');
+                    energyPlanInfo.id = 'energyPlanInfo';
+                    energyPlanInfo.className = 'energy-plan-info';
+                    document.querySelector('.map-container').appendChild(energyPlanInfo);
+                }
+                
+                var html = `
+                    <h3>智能充电/加油规划</h3>
+                    
+                    <div class="energy-section">
+                        <h4>当前状态</h4>
+                        <div class="energy-status">
+                            <div class="energy-level">
+                                <div class="energy-bar">
+                                    <div class="energy-fill" style="width: ${energyPlanData.currentLevel}%"></div>
+                                </div>
+                                <span class="energy-percentage">${energyPlanData.currentLevel}%</span>
+                            </div>
+                            <div class="energy-range">续航里程: ${energyPlanData.range}km</div>
+                        </div>
+                    </div>
+                    
+                    <div class="energy-section">
+                        <h4>附近站点</h4>
+                        <div class="station-list">
+                            ${energyPlanData.stations.map(station => `
+                                <div class="station-item">
+                                    <div class="station-header">
+                                        <span class="station-name">${station.name}</span>
+                                        <span class="station-type ${station.type}">${station.type === 'gas' ? '⛽' : '🔌'}</span>
+                                    </div>
+                                    <div class="station-details">
+                                        <span class="station-price">¥${station.price}${station.type === 'gas' ? '/L' : '/度'}</span>
+                                        <span class="station-distance">${station.distance}</span>
+                                        <span class="station-wait">${station.waitTime}</span>
+                                    </div>
+                                    <div class="station-rating">★ ${station.rating}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    
+                    <div class="energy-section">
+                        <h4>价格趋势</h4>
+                        <div class="price-trend ${energyPlanData.priceTrend}">
+                            <span class="trend-icon">${energyPlanData.priceTrend === 'down' ? '↓' : energyPlanData.priceTrend === 'up' ? '↑' : '→'}</span>
+                            <span class="trend-text">${energyPlanData.priceTrend === 'down' ? '下降' : energyPlanData.priceTrend === 'up' ? '上涨' : '稳定'} ${Math.abs(energyPlanData.priceChange)}元</span>
+                        </div>
+                    </div>
+                    
+                    <div class="energy-section">
+                        <h4>AI建议</h4>
+                        <div class="ai-suggestions">
+                            ${energyPlanData.aiSuggestions.map(suggestion => `
+                                <div class="ai-suggestion-item">
+                                    <span class="suggestion-icon">💡</span>
+                                    <span class="suggestion-text">${suggestion}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+                
+                energyPlanInfo.innerHTML = html;
+                energyPlanInfo.classList.add('visible');
+            }
+            
+            // 显示智能停车场预约
+            function showParkingReserve() {
+                hideTraffic();
+                hideParking();
+                hideWeather();
+                hideAIAssistant();
+                hideNearbyServices();
+                hideVehicleStatus();
+                hideMaintenance();
+                hideFuelManagement();
+                hideSmartTrip();
+                hideEnergyPlan();
+                document.getElementById('routeInfo').classList.remove('visible');
+                document.querySelector('.search-panel').style.display = 'none';
+                
+                showParkingReserveInfo();
+            }
+            
+            // 隐藏智能停车场预约
+            function hideParkingReserve() {
+                var parkingReservePanel = document.getElementById('parkingReserveInfo');
+                if (parkingReservePanel) {
+                    parkingReservePanel.classList.remove('visible');
+                }
+            }
+            
+            // 显示智能停车场预约信息
+            function showParkingReserveInfo() {
+                var parkingReserveInfo = document.getElementById('parkingReserveInfo');
+                if (!parkingReserveInfo) {
+                    parkingReserveInfo = document.createElement('div');
+                    parkingReserveInfo.id = 'parkingReserveInfo';
+                    parkingReserveInfo.className = 'parking-reserve-info';
+                    document.querySelector('.map-container').appendChild(parkingReserveInfo);
+                }
+                
+                var html = `
+                    <h3>智能停车场预约</h3>
+                    
+                    <div class="parking-reserve-section">
+                        <h4>目的地: ${parkingReserveData.destination}</h4>
+                        <div class="nearby-parking">
+                            ${parkingReserveData.nearbyParking.map(parking => `
+                                <div class="parking-item">
+                                    <div class="parking-header">
+                                        <span class="parking-name">${parking.name}</span>
+                                        <span class="parking-rating">★ ${parking.rating}</span>
+                                    </div>
+                                    <div class="parking-details">
+                                        <span class="parking-distance">${parking.distance}</span>
+                                        <span class="parking-price">${parking.price}</span>
+                                    </div>
+                                    <div class="parking-availability">
+                                        <div class="availability-bar">
+                                            <div class="availability-fill" style="width: ${(parking.available / parking.totalSpots * 100)}%"></div>
+                                        </div>
+                                        <span class="availability-text">${parking.available}/${parking.totalSpots}</span>
+                                    </div>
+                                    <div class="parking-features">
+                                        ${parking.features.map(feature => `<span class="feature-tag">${feature}</span>`).join('')}
+                                    </div>
+                                    <button class="reserve-btn">预约</button>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    
+                    <div class="parking-reserve-section">
+                        <h4>我的预约</h4>
+                        <div class="my-reservations">
+                            ${parkingReserveData.myReservations.map(reservation => `
+                                <div class="reservation-item">
+                                    <div class="reservation-header">
+                                        <span class="reservation-parking">${reservation.parking}</span>
+                                        <span class="reservation-status">${reservation.status}</span>
+                                    </div>
+                                    <div class="reservation-details">
+                                        <span>${reservation.date}</span>
+                                        <span>${reservation.time}</span>
+                                        <span>车位: ${reservation.spot}</span>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    
+                    <div class="parking-reserve-section">
+                        <h4>AI推荐</h4>
+                        <div class="ai-recommendations">
+                            ${parkingReserveData.aiRecommendations.map(rec => `
+                                <div class="ai-rec-item">
+                                    <span class="rec-icon">💡</span>
+                                    <span class="rec-text">${rec}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+                
+                parkingReserveInfo.innerHTML = html;
+                parkingReserveInfo.classList.add('visible');
+            }
+            
+            // 显示燃油管理信息
+            function showFuelInfo() {
+                var fuelInfo = document.getElementById('fuelInfo');
+                if (!fuelInfo) {
+                    fuelInfo = document.createElement('div');
+                    fuelInfo.id = 'fuelInfo';
+                    fuelInfo.className = 'fuel-info';
+                    document.querySelector('.map-container').appendChild(fuelInfo);
+                }
+                
+                var html = `
+                    <h3>燃油管理</h3>
+                    
+                    <div class="fuel-section">
+                        <h4>当前燃油状态</h4>
+                        <div class="fuel-status">
+                            <div class="fuel-level">
+                                <div class="fuel-bar">
+                                    <div class="fuel-fill" style="width: ${fuelData.current.level}%"></div>
+                                </div>
+                                <span class="fuel-percentage">${fuelData.current.level}%</span>
+                            </div>
+                            <div class="fuel-details">
+                                <div class="fuel-detail">
+                                    <span class="fuel-label">续航里程</span>
+                                    <span class="fuel-value">${fuelData.current.range}km</span>
+                                </div>
+                                <div class="fuel-detail">
+                                    <span class="fuel-label">当前油耗</span>
+                                    <span class="fuel-value">${fuelData.current.consumption}L/100km</span>
+                                </div>
+                                <div class="fuel-detail">
+                                    <span class="fuel-label">平均油耗</span>
+                                    <span class="fuel-value">${fuelData.current.avgConsumption}L/100km</span>
+                                </div>
+                                <div class="fuel-detail">
+                                    <span class="fuel-label">燃油类型</span>
+                                    <span class="fuel-value">${fuelData.current.fuelType}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="fuel-section">
+                        <h4>加油记录</h4>
+                        <div class="fuel-history">
+                            ${fuelData.history.map(record => `
+                                <div class="fuel-record">
+                                    <div class="record-header">
+                                        <span class="record-date">${record.date}</span>
+                                        <span class="record-cost">${record.cost}</span>
+                                    </div>
+                                    <div class="record-details">
+                                        <span>加油量: ${record.amount}L</span>
+                                        <span>单价: ¥${record.price}/L</span>
+                                        <span>里程: ${record.mileage}km</span>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    
+                    <div class="fuel-section">
+                        <h4>安全监控</h4>
+                        <div class="fuel-alerts">
+                            ${fuelData.safetyAlerts.map(alert => `
+                                <div class="fuel-alert ${alert.severity === '正常' ? 'normal' : 'low'}">
+                                    <span class="alert-type">${alert.type}</span>
+                                    <span class="alert-message">${alert.message}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    
+                    <div class="fuel-section">
+                        <h4>AI建议</h4>
+                        <div class="ai-insights">
+                            <p class="efficiency">${fuelData.aiInsights.efficiency}</p>
+                            <ul class="tips">
+                                ${fuelData.aiInsights.tips.map(tip => `<li>${tip}</li>`).join('')}
+                            </ul>
+                        </div>
+                    </div>
+                `;
+                
+                fuelInfo.innerHTML = html;
+                fuelInfo.classList.add('visible');
+            }
+            
+            // 隐藏AI辅助
+            function hideAIAssistant() {
+                document.getElementById('aiAssistantInfo').classList.remove('visible');
+            }
+            
+            // 红绿灯数据 - 与政府端保持一致，按照地图道路分布
+            var trafficLights = [
+                // 观音桥商圈区域道路
+                { id: 1, lat: 29.5570, lng: 106.5770, status: 'red', time: 22 }, // 观音桥步行街路口
+                { id: 3, lat: 29.5590, lng: 106.5720, status: 'yellow', time: 2 }, // 观音桥环道
+                { id: 4, lat: 29.5570, lng: 106.5620, status: 'red', time: 15 }, // 建新北路
+                { id: 5, lat: 29.5580, lng: 106.5700, status: 'green', time: 12 }, // 建新东路
+                { id: 6, lat: 29.5590, lng: 106.5720, status: 'yellow', time: 3 }, // 建新东路与观音桥环道交叉口
+                
+                // 嘉陵江大桥区域
+                { id: 7, lat: 29.5610, lng: 106.5540, status: 'red', time: 20 }, // 嘉陵江大桥北桥头
+                
+                // 北滨路沿线（重新定位，确保在道路上）
+                { id: 8, lat: 29.5610, lng: 106.5590, status: 'green', time: 18 }, // 北滨路
+                { id: 9, lat: 29.5620, lng: 106.5550, status: 'yellow', time: 2 }, // 北滨路
+                { id: 10, lat: 29.5630, lng: 106.5510, status: 'red', time: 18 }, // 北滨路
+                
+                // 华新街区域
+                { id: 14, lat: 29.5600, lng: 106.5580, status: 'green', time: 15 }, // 华新街
+                { id: 15, lat: 29.5610, lng: 106.5670, status: 'red', time: 20 }, // 华新街与洋河大道交叉口
+                
+                // 洋河大道区域
+                { id: 16, lat: 29.5620, lng: 106.5610, status: 'yellow', time: 2 }, // 洋河大道
+                { id: 17, lat: 29.5630, lng: 106.5590, status: 'green', time: 12 } // 洋河大道
+            ];
+            
+            // 红绿灯图层
+            var trafficLightLayer = L.layerGroup().addTo(map);
+            
+            // 添加红绿灯标记
+            function addTrafficLights() {
+                trafficLightLayer.clearLayers();
+                trafficLights.forEach(function(light) {
+                    var statusText = getStatusText(light.status);
+                    var statusClass = `light-${light.status}`;
+                    var icon = '';
+                    switch(light.status) {
+                        case 'red': icon = '🔴'; break;
+                        case 'yellow': icon = '🟡'; break;
+                        case 'green': icon = '🟢'; break;
+                    }
+                    var lightIcon = L.divIcon({
+                        className: 'traffic-light-marker',
+                        html: `<div class="traffic-light-container">
+                                <span class="${statusClass}">${icon} ${statusText}${light.time}s</span>
+                              </div>`,
+                        iconSize: [80, 25],
+                        iconAnchor: [40, 12.5]
+                    });
+                    
+                    L.marker([light.lat, light.lng], { icon: lightIcon })
+                        .addTo(trafficLightLayer)
+                        .bindPopup(`<b>红绿灯 #${light.id}</b><br>状态: ${statusText}<br>剩余时间: ${light.time}秒`);
+                });
+            }
+            
+            // 获取红绿灯状态文本
+            function getStatusText(status) {
+                switch(status) {
+                    case 'red': return '红灯';
+                    case 'green': return '绿灯';
+                    case 'yellow': return '黄灯';
+                    default: return '未知';
+                }
+            }
+            
+            // 实时路况更新
+            var trafficUpdateInterval;
+            
+            function startTrafficUpdate() {
+                // 清除现有定时器
+                if (trafficUpdateInterval) {
+                    clearInterval(trafficUpdateInterval);
+                }
+                
+                // 每30秒更新一次路况
+                trafficUpdateInterval = setInterval(function() {
+                    updateTrafficData();
+                    updateAreaCongestion();
+                }, 30000);
+            }
+            
+            function stopTrafficUpdate() {
+                if (trafficUpdateInterval) {
+                    clearInterval(trafficUpdateInterval);
+                    trafficUpdateInterval = null;
+                }
+            }
+            
+            // 更新路况数据 - 使用圆形背景圈
+            function updateTrafficData() {
+                // 随机更新部分路段的速度，模拟实时变化
+                trafficData.forEach(function(segment) {
+                    // 30%的概率更新速度
+                    if (Math.random() < 0.3) {
+                        // 在原有速度基础上随机波动 ±5 km/h
+                        var speedChange = (Math.random() - 0.5) * 10;
+                        var newSpeed = Math.max(5, Math.min(80, segment.speed + speedChange));
+                        segment.speed = Math.round(newSpeed);
+                        
+                        // 更新状态
+                        if (segment.speed >= 60) {
+                            segment.status = '畅通';
+                        } else if (segment.speed >= 30) {
+                            segment.status = '轻度拥堵';
+                        } else if (segment.speed >= 15) {
+                            segment.status = '中度拥堵';
+                        } else {
+                            segment.status = '严重拥堵';
+                        }
+                    }
+                });
+                
+                // 重新绘制路况（使用圆形背景圈）
+                trafficLayer.clearLayers();
+                
+                // 按区域分组计算平均拥堵情况
+                var areaData = {};
+                trafficData.forEach(function(segment) {
+                    var areaName = segment.name.includes('观音桥') ? '观音桥商圈' :
+                                   segment.name.includes('北滨路') ? '北滨路沿线' :
+                                   segment.name.includes('红旗河沟') ? '红旗河沟区域' :
+                                   segment.name.includes('华新街') ? '华新街区域' :
+                                   segment.name.includes('嘉陵江大桥') ? '嘉陵江大桥' :
+                                   segment.name.includes('建新北路') ? '建新北路' :
+                                   segment.name.includes('红黄路') ? '红黄路' :
+                                   segment.name.includes('洋河大道') ? '洋河大道' :
+                                   segment.name.includes('观音桥环道') ? '观音桥环道' :
+                                   segment.name.includes('建新东路') ? '建新东路' :
+                                   segment.name.includes('渝澳大道') ? '渝澳大道' :
+                                   segment.name.includes('大庆村立交') ? '大庆村立交' :
+                                   segment.name.includes('红石路') ? '红石路' : '其他区域';
+                    
+                    if (!areaData[areaName]) {
+                        areaData[areaName] = { speeds: [], center: segment.path[Math.floor(segment.path.length / 2)] };
+                    }
+                    areaData[areaName].speeds.push(segment.speed);
+                });
+                
+                // 为每个区域绘制圆形背景圈
+                Object.keys(areaData).forEach(function(areaName) {
+                    var area = areaData[areaName];
+                    var avgSpeed = area.speeds.reduce((sum, s) => sum + s, 0) / area.speeds.length;
+                    var color = getTrafficColor(avgSpeed);
+                    var status = avgSpeed >= 60 ? '畅通' : avgSpeed >= 30 ? '轻度拥堵' : avgSpeed >= 15 ? '中度拥堵' : '严重拥堵';
+                    
+                    // 绘制圆形背景圈
+                    var circle = L.circle(area.center, {
+                        color: color,
+                        fillColor: color,
+                        fillOpacity: 0.4,
+                        radius: 400, // 400米半径，避免重合
+                        weight: 2,
+                        className: 'traffic-circle'
+                    }).addTo(trafficLayer);
+                    
+
+                    
+                    // 添加弹窗
+                    circle.bindPopup(`
+                        <div class="traffic-popup">
+                            <h5>${areaName}</h5>
+                            <p>平均速度: ${Math.round(avgSpeed)} km/h</p>
+                            <p>交通状况: ${status}</p>
+                            <p>覆盖路段: ${area.speeds.length} 条</p>
+                            <p>更新时间: ${new Date().toLocaleTimeString()}</p>
+                        </div>
+                    `);
+                });
+            }
+            
+            // 更新区域拥堵指数
+            function updateAreaCongestion() {
+                // 计算各区域的平均速度
+                var areas = {
+                    guanyinqiao: [],
+                    beibin: [],
+                    hongqi: [],
+                    huaxin: []
+                };
+                
+                // 分类路段到对应区域
+                trafficData.forEach(function(segment) {
+                    if (segment.name.includes('观音桥')) {
+                        areas.guanyinqiao.push(segment.speed);
+                    } else if (segment.name.includes('北滨路')) {
+                        areas.beibin.push(segment.speed);
+                    } else if (segment.name.includes('红旗河沟')) {
+                        areas.hongqi.push(segment.speed);
+                    } else if (segment.name.includes('华新街')) {
+                        areas.huaxin.push(segment.speed);
+                    }
+                });
+                
+                // 计算平均速度并更新区域拥堵状态
+                updateAreaStatus('guanyinqiao', areas.guanyinqiao);
+                updateAreaStatus('beibin', areas.beibin);
+                updateAreaStatus('hongqi', areas.hongqi);
+                updateAreaStatus('huaxin', areas.huaxin);
+            }
+            
+            function updateAreaStatus(areaId, speeds) {
+                if (speeds.length === 0) return;
+                
+                var avgSpeed = speeds.reduce((sum, speed) => sum + speed, 0) / speeds.length;
+                var levelElement = document.getElementById(areaId + 'Level');
+                
+                if (avgSpeed >= 50) {
+                    levelElement.textContent = '畅通';
+                    levelElement.className = 'area-congestion-level low';
+                } else if (avgSpeed >= 30) {
+                    levelElement.textContent = '轻度拥堵';
+                    levelElement.className = 'area-congestion-level medium';
+                } else {
+                    levelElement.textContent = '严重拥堵';
+                    levelElement.className = 'area-congestion-level high';
+                }
+            }
+            
+            // 导航面板按钮
+            var navBtns = document.querySelectorAll('.nav-btn');
+            navBtns.forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    navBtns.forEach(function(b) { b.classList.remove('active'); });
+                    this.classList.add('active');
+                    
+                    var btnId = this.id;
+                    if (btnId === 'trafficBtn') {
+                        showTraffic();
+                        hideParking();
+                        hideWeather();
+                        hideAIAssistant();
+                        hideNearbyServices();
+                        hideVehicleStatus();
+                        hideMaintenance();
+                        hideFuelManagement();
+                        hideSmartTrip();
+                        hideEnergyPlan();
+                        hideParkingReserve();
+                        document.querySelector('.search-panel').style.display = 'none';
+                    } else if (btnId === 'parkingBtn') {
+                        showParking();
+                        hideWeather();
+                        hideAIAssistant();
+                        hideNearbyServices();
+                        hideVehicleStatus();
+                        hideMaintenance();
+                        hideFuelManagement();
+                        hideSmartTrip();
+                        hideEnergyPlan();
+                        hideParkingReserve();
+                        document.querySelector('.search-panel').style.display = 'none';
+                    } else if (btnId === 'emergencyBtn') {
+                        showAIAssistant();
+                        hideTraffic();
+                        hideParking();
+                        hideWeather();
+                        hideNearbyServices();
+                        hideVehicleStatus();
+                        hideMaintenance();
+                        hideFuelManagement();
+                        hideSmartTrip();
+                        hideEnergyPlan();
+                        hideParkingReserve();
+                        document.querySelector('.search-panel').style.display = 'none';
+                    } else if (btnId === 'navBtn') {
+                        hideTraffic();
+                        hideParking();
+                        hideWeather();
+                        hideAIAssistant();
+                        hideNearbyServices();
+                        hideVehicleStatus();
+                        hideMaintenance();
+                        hideFuelManagement();
+                        hideSmartTrip();
+                        hideEnergyPlan();
+                        hideParkingReserve();
+                        document.querySelector('.search-panel').style.display = 'block';
+                    }
+                });
+            });
+            
+            // 左侧菜单点击事件
+            var leftMenuItems = document.querySelectorAll('.left-menu li');
+            leftMenuItems.forEach(function(item) {
+                item.addEventListener('click', function() {
+                    // 移除所有菜单项的active类
+                    leftMenuItems.forEach(function(i) { i.classList.remove('active'); });
+                    // 添加当前菜单项的active类
+                    this.classList.add('active');
+                    
+                    // 模拟不同功能
+                    var menuId = this.dataset.menu;
+                    switch(menuId) {
+                        case 'nav':
+                            document.getElementById('routeInfo').classList.remove('visible');
+                            hideTraffic();
+                            hideParking();
+                            hideWeather();
+                            hideAIAssistant();
+                            hideNearbyServices();
+                            hideVehicleStatus();
+                            hideMaintenance();
+                            hideFuelManagement();
+                            hideSmartTrip();
+                            hideEnergyPlan();
+                            hideParkingReserve();
+                            document.querySelector('.search-panel').style.display = 'block';
+                            break;
+                        case 'traffic':
+                            showTraffic();
+                            hideParking();
+                            hideWeather();
+                            hideAIAssistant();
+                            hideNearbyServices();
+                            hideVehicleStatus();
+                            hideMaintenance();
+                            hideFuelManagement();
+                            hideSmartTrip();
+                            hideEnergyPlan();
+                            hideParkingReserve();
+                            document.querySelector('.search-panel').style.display = 'none';
+                            break;
+                        case 'parking':
+                            showParking();
+                            hideWeather();
+                            hideAIAssistant();
+                            hideNearbyServices();
+                            hideVehicleStatus();
+                            hideMaintenance();
+                            hideFuelManagement();
+                            hideSmartTrip();
+                            hideEnergyPlan();
+                            hideParkingReserve();
+                            document.querySelector('.search-panel').style.display = 'none';
+                            break;
+                        case 'weather':
+                            showWeather();
+                            hideAIAssistant();
+                            hideNearbyServices();
+                            hideVehicleStatus();
+                            hideMaintenance();
+                            hideFuelManagement();
+                            hideSmartTrip();
+                            hideEnergyPlan();
+                            hideParkingReserve();
+                            document.querySelector('.search-panel').style.display = 'none';
+                            break;
+                        case 'ai-assistant':
+                            showAIAssistant();
+                            hideNearbyServices();
+                            hideVehicleStatus();
+                            hideMaintenance();
+                            hideFuelManagement();
+                            hideSmartTrip();
+                            hideEnergyPlan();
+                            hideParkingReserve();
+                            document.querySelector('.search-panel').style.display = 'none';
+                            break;
+                        case 'nearby':
+                            showNearbyServices();
+                            hideVehicleStatus();
+                            hideMaintenance();
+                            hideFuelManagement();
+                            hideSmartTrip();
+                            hideEnergyPlan();
+                            hideParkingReserve();
+                            break;
+                        case 'vehicle-status':
+                            showVehicleStatus();
+                            hideTraffic();
+                            hideParking();
+                            hideWeather();
+                            hideAIAssistant();
+                            hideNearbyServices();
+                            hideMaintenance();
+                            hideFuelManagement();
+                            hideSmartTrip();
+                            hideEnergyPlan();
+                            hideParkingReserve();
+                            document.querySelector('.search-panel').style.display = 'none';
+                            break;
+                        case 'maintenance':
+                            showMaintenance();
+                            hideTraffic();
+                            hideParking();
+                            hideWeather();
+                            hideAIAssistant();
+                            hideNearbyServices();
+                            hideVehicleStatus();
+                            hideFuelManagement();
+                            hideSmartTrip();
+                            hideEnergyPlan();
+                            hideParkingReserve();
+                            document.querySelector('.search-panel').style.display = 'none';
+                            break;
+                        case 'fuel':
+                            showFuelManagement();
+                            hideTraffic();
+                            hideParking();
+                            hideWeather();
+                            hideAIAssistant();
+                            hideNearbyServices();
+                            hideVehicleStatus();
+                            hideMaintenance();
+                            hideSmartTrip();
+                            hideEnergyPlan();
+                            hideParkingReserve();
+                            document.querySelector('.search-panel').style.display = 'none';
+                            break;
+                        case 'smart-trip':
+                            showSmartTrip();
+                            hideTraffic();
+                            hideParking();
+                            hideWeather();
+                            hideAIAssistant();
+                            hideNearbyServices();
+                            hideVehicleStatus();
+                            hideMaintenance();
+                            hideFuelManagement();
+                            hideEnergyPlan();
+                            hideParkingReserve();
+                            document.querySelector('.search-panel').style.display = 'none';
+                            break;
+                        case 'energy-plan':
+                            showEnergyPlan();
+                            hideTraffic();
+                            hideParking();
+                            hideWeather();
+                            hideAIAssistant();
+                            hideNearbyServices();
+                            hideVehicleStatus();
+                            hideMaintenance();
+                            hideFuelManagement();
+                            hideSmartTrip();
+                            hideParkingReserve();
+                            document.querySelector('.search-panel').style.display = 'none';
+                            break;
+                        case 'parking-reserve':
+                            showParkingReserve();
+                            hideTraffic();
+                            hideParking();
+                            hideWeather();
+                            hideAIAssistant();
+                            hideNearbyServices();
+                            hideVehicleStatus();
+                            hideMaintenance();
+                            hideFuelManagement();
+                            hideSmartTrip();
+                            hideEnergyPlan();
+                            document.querySelector('.search-panel').style.display = 'none';
+                            break;
+                    }
+                });
+            });
+            
+            // 初始化红绿灯
+            addTrafficLights();
+            
+            // 红绿灯倒计时更新
+            function updateTrafficLightTimers() {
+                trafficLights.forEach(function(light) {
+                    // 减少倒计时
+                    light.time--;
+                    
+                    // 当倒计时结束时，切换状态
+                    if (light.time <= 0) {
+                        switch(light.status) {
+                            case 'red':
+                                light.status = 'green';
+                                light.time = 30; // 绿灯时间
+                                break;
+                            case 'green':
+                                light.status = 'yellow';
+                                light.time = 3; // 黄灯时间
+                                break;
+                            case 'yellow':
+                                light.status = 'red';
+                                light.time = 45; // 红灯时间
+                                break;
+                        }
+                    }
+                });
+                
+                // 更新显示
+                addTrafficLights();
+            }
+            
+            // 每秒钟更新一次倒计时
+            setInterval(updateTrafficLightTimers, 1000);
+            
+        })();
+    </script>
+</body>
+</html>
