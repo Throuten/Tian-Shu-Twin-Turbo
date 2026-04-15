@@ -1,0 +1,1384 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>警用指挥终端 - 智慧交通全域信号管控系统</title>
+    <script>
+    (function () {
+        try {
+            var q = new URLSearchParams(location.search || '');
+            if (q.get('dev') === '1') {
+                window.__DEV_PREVIEW__ = true;
+                if (!localStorage.getItem('jwtToken')) localStorage.setItem('jwtToken', 'dev-preview-token');
+                localStorage.setItem('userRole', 'police');
+            }
+        } catch (e) {}
+    })();
+    </script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
+    <style>
+        :root {
+            /* 与 .gov-ui 网格一致：padding + 标题行 + KPI + 事故快报条，避免地图顶栏与快报条重叠 */
+            --gov-chrome-top: calc(12px + 52px + 8px + 58px + 8px + 50px + 8px);
+            --bg-color: #070f1c;
+            --panel-bg: #0f1829;
+            --panel-elevated: #152238;
+            --text-color: #dce3f0;
+            --text-muted: #8b9bb8;
+            --primary-color: #5eead4;
+            --border-color: rgba(55, 75, 105, 0.5);
+            --icon-size: 24px;
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 14px;
+            --shadow-panel: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+            --shadow-elevated: 0 24px 56px -16px rgba(0, 0, 0, 0.55);
+            --glow-coral: 0 0 40px rgba(255, 120, 100, 0.12);
+            --glow-cyan: 0 0 32px rgba(94, 234, 212, 0.1);
+        }
+        body.police-app {
+            --primary-color: #ff9a8e;
+        }
+        html { height: 100%; }
+        body, html {
+            margin: 0; padding: 0; height: 100%;
+            font-family: "Noto Sans SC", "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+            background: #050810;
+            background-image:
+                radial-gradient(ellipse 100% 70% at 50% -15%, rgba(255, 95, 85, 0.09), transparent 52%),
+                radial-gradient(ellipse 70% 50% at 100% 5%, rgba(45, 160, 200, 0.06), transparent 48%),
+                linear-gradient(180deg, #0c121f 0%, #050810 38%, #080c14 100%);
+            color: var(--text-color);
+            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+        /* 100% 高度链：在 dev_hub iframe 里比 100vh 更可靠，避免地图下半截灰/不刷新瓦片 */
+        .container { position: relative; width: 100%; height: 100%; min-height: 0; overflow: hidden; box-sizing: border-box; }
+        .map-base { position: absolute; inset: 0; z-index: 0; background: #0d1524; }
+        .map-wrap { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
+        #map {
+            flex: 1 1 auto;
+            min-height: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: 0;
+        }
+        #map.leaflet-container { min-height: 0; }
+        #police-video-layer {
+            position: absolute; inset: 0; z-index: 50; display: none; flex-direction: column;
+            background: linear-gradient(180deg, #0a1018 0%, #050810 100%);
+            border-top: 1px solid rgba(255, 100, 90, 0.2);
+        }
+        #police-video-layer.show { display: flex; }
+        .police-video-head {
+            flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;
+            padding: 8px 12px; background: rgba(18, 28, 42, 0.95); border-bottom: 1px solid rgba(255, 100, 90, 0.15);
+            font-size: 12px; font-weight: 600; color: #e8edf5;
+        }
+        .police-video-stage {
+            flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+            background: #000; color: #52c41a; font-family: ui-monospace, Consolas, monospace; font-size: 13px;
+            text-align: center; padding: 16px; line-height: 1.6;
+        }
+        .gov-ui {
+            position: absolute; inset: 0; z-index: 10;
+            display: grid;
+            grid-template-columns: 300px 1fr 380px;
+            grid-template-rows: auto auto auto 1fr;
+            gap: 10px 14px;
+            padding: 14px 16px 16px;
+            box-sizing: border-box;
+            pointer-events: none;
+        }
+        .gov-ui > * { pointer-events: auto; }
+        .gov-ui > .gov-center-stack { pointer-events: none !important; }
+        .header {
+            grid-column: 1 / -1; grid-row: 1;
+            position: relative;
+            background: linear-gradient(165deg, rgba(22, 32, 52, 0.97) 0%, rgba(12, 20, 38, 0.98) 50%, rgba(10, 16, 30, 0.99) 100%);
+            backdrop-filter: blur(14px) saturate(1.2);
+            border-radius: var(--radius-md);
+            display: flex; align-items: flex-start; justify-content: space-between;
+            padding: 12px 20px 12px 22px;
+            font-size: 16px; font-weight: 600; letter-spacing: 0.06em;
+            border: 1px solid rgba(255, 130, 110, 0.22);
+            box-shadow: var(--shadow-panel), var(--glow-coral), 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+            gap: 14px; flex-wrap: wrap;
+        }
+        .header::before {
+            content: ''; position: absolute; left: 14px; right: 14px; top: 0; height: 2px; border-radius: 2px;
+            background: linear-gradient(90deg, transparent, rgba(255, 140, 120, 0.65), rgba(94, 234, 212, 0.45), transparent);
+            opacity: 0.85;
+        }
+        body.police-app .header { border-color: rgba(255, 110, 95, 0.32); }
+        .header-brand { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 6px; }
+        .header-brand > span:first-of-type {
+            font-size: 15px; font-weight: 700; letter-spacing: 0.08em;
+            color: #fff7f4;
+            text-shadow: 0 0 48px rgba(255, 130, 110, 0.35), 0 1px 2px rgba(0, 0, 0, 0.4);
+        }
+        .header-note { font-size: 11px; font-weight: 400; color: #7a869f; letter-spacing: 0.02em; line-height: 1.45; max-width: 56rem; }
+        .header-note a { color: var(--primary-color); text-decoration: none; }
+        .header-note a:hover { text-decoration: underline; }
+        .header-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; padding-top: 2px; flex-wrap: wrap; }
+        .police-alarm-pill {
+            font-size: 12px; font-weight: 700; color: #ffc9c4;
+            padding: 6px 12px; border-radius: 999px;
+            background: linear-gradient(135deg, rgba(180, 40, 45, 0.45) 0%, rgba(90, 20, 25, 0.55) 100%);
+            border: 1px solid rgba(255, 140, 130, 0.45);
+            box-shadow: 0 0 20px rgba(255, 80, 70, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+            animation: police-blink 1.2s ease-in-out infinite;
+        }
+        @keyframes police-blink { 0%,100%{opacity:1;} 50%{opacity:0.72;} }
+        .kpi-strip {
+            grid-column: 1 / -1; grid-row: 2;
+            display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px;
+            padding: 0 2px;
+        }
+        .kpi-card {
+            flex: 1; min-width: 100px; max-width: 160px;
+            background: linear-gradient(160deg, rgba(20, 34, 55, 0.92) 0%, rgba(8, 14, 26, 0.96) 100%);
+            border: 1px solid rgba(100, 140, 180, 0.18);
+            border-radius: var(--radius-sm); padding: 10px 12px;
+            display: flex; align-items: center; gap: 10px;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 4px 16px rgba(0, 0, 0, 0.25);
+            position: relative; overflow: hidden;
+        }
+        body.police-app .kpi-card::after {
+            content: ''; position: absolute; top: 0; right: 0; width: 40%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 100, 80, 0.06)); pointer-events: none;
+        }
+        .kpi-card .kv { font-size: 20px; font-weight: 700; font-family: Consolas, ui-monospace, monospace; line-height: 1.1; text-shadow: 0 0 20px currentColor; }
+        .kpi-card .kl { font-size: 10px; color: #7c8ca3; letter-spacing: 0.08em; font-weight: 500; }
+        .kpi-card.c-red .kv { color: #fb7185; }
+        .kpi-card.c-cyan .kv { color: #22d3ee; }
+        .kpi-card.c-amber .kv { color: #fbbf24; }
+        .kpi-card.c-green .kv { color: #4ade80; }
+        .kpi-card.c-violet .kv { color: #a78bfa; }
+        #system-time { font-size: 13px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+        .accident-ticker-wrap {
+            grid-column: 1 / -1; grid-row: 3;
+            display: flex; align-items: stretch;
+            position: relative;
+            background: linear-gradient(90deg, rgba(55, 32, 32, 0.4) 0%, rgba(10, 18, 32, 0.94) 42%);
+            border: 1px solid rgba(255, 130, 110, 0.22);
+            border-radius: var(--radius-sm);
+            overflow: visible;
+            min-height: 50px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        }
+        .accident-ticker-label {
+            flex: 0 0 auto;
+            padding: 0 16px;
+            display: flex; align-items: center;
+            font-size: 12px; font-weight: 600;
+            color: #1a0a08;
+            background: linear-gradient(180deg, #ff8a7a 0%, #c94a42 100%);
+            letter-spacing: 0.12em;
+            white-space: nowrap;
+        }
+        .accident-ticker-label::before {
+            content: '';
+            display: inline-block; width: 8px; height: 8px; margin-right: 8px;
+            border-radius: 50%;
+            background: #fff;
+            animation: ticker-pulse 1.2s ease-in-out infinite;
+            box-shadow: 0 0 10px rgba(255,255,255,0.6);
+        }
+        @keyframes ticker-pulse { 0%,100%{opacity:1;transform:scale(1);} 50%{opacity:0.7;transform:scale(0.85);} }
+        .accident-ticker-track {
+            flex: 1; min-width: 0;
+            overflow: hidden;
+            position: relative;
+            border-radius: 0 10px 10px 0;
+            mask-image: linear-gradient(90deg, transparent 0%, #000 1.5%, #000 98.5%, transparent 100%);
+        }
+        .accident-ticker-marquee {
+            display: flex; width: max-content;
+            animation: gov-marquee 120s linear infinite;
+            padding: 10px 0;
+            will-change: transform;
+        }
+        .accident-ticker-marquee:hover { animation-play-state: paused; }
+        @keyframes gov-marquee {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-50%); }
+        }
+        .ticker-item {
+            display: inline-flex; align-items: center; gap: 10px;
+            padding: 4px 32px 4px 10px;
+            border-right: 1px solid rgba(255, 140, 120, 0.12);
+            white-space: nowrap;
+            font-size: 13px;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: background 0.2s, box-shadow 0.2s;
+        }
+        .gov-ticker-pack .ticker-item:hover,
+        .ticker-item:hover {
+            background: rgba(94, 234, 212, 0.08);
+            box-shadow: 0 0 0 1px rgba(94, 234, 212, 0.15);
+        }
+        .header a.dev-link { font-size: 13px; color: var(--primary-color); text-decoration: none; white-space: nowrap; }
+        .left-panel {
+            grid-column: 1; grid-row: 4;
+            background: linear-gradient(185deg, rgba(18, 28, 48, 0.96) 0%, rgba(8, 14, 26, 0.98) 100%);
+            backdrop-filter: blur(14px) saturate(1.15);
+            border-radius: var(--radius-md); padding: 0;
+            border: 1px solid rgba(255, 120, 100, 0.22);
+            overflow: hidden;
+            box-shadow: var(--shadow-elevated), var(--glow-coral), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            display: flex; flex-direction: column; min-height: 0;
+        }
+        .left-nav-block { flex-shrink: 0; padding: 10px 10px 6px; border-bottom: 1px solid rgba(255, 100, 90, 0.1); }
+        .left-microsim-pause-block {
+            flex-shrink: 0; padding: 0 10px 10px;
+            border-bottom: 1px solid rgba(255, 100, 90, 0.08);
+        }
+        .btn-left-microsim-pause {
+            width: 100%; padding: 9px 11px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em;
+            border-radius: 8px; cursor: pointer; box-sizing: border-box;
+            border: 1px solid rgba(94, 234, 212, 0.38);
+            background: linear-gradient(180deg, rgba(22, 42, 48, 0.95) 0%, rgba(12, 28, 32, 0.98) 100%);
+            color: #a7f3d0;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+            transition: border-color 0.15s, color 0.15s, filter 0.15s, background 0.2s, box-shadow 0.2s;
+        }
+        .btn-left-microsim-pause:hover:not(:disabled) {
+            border-color: rgba(94, 234, 212, 0.6); color: #ecfdf5; filter: brightness(1.06);
+        }
+        .btn-left-microsim-pause:disabled {
+            opacity: 0.42; cursor: not-allowed; filter: grayscale(0.25);
+        }
+        /* 强制实时重启间隙：引擎尚未挂上时仍保持深蓝，勿灰成不可用色 */
+        .btn-left-microsim-pause.is-live-running:disabled {
+            opacity: 0.88;
+            cursor: wait;
+            filter: none;
+        }
+        /* 实时推演会话中（含已点暂停）：始终保持深蓝，与右侧「本次强制实时」一致；仅停止仿真后恢复默认 */
+        .btn-left-microsim-pause.is-live-running {
+            border-color: rgba(96, 165, 250, 0.92);
+            color: #eff6ff;
+            background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 48%, #1e3a8a 100%);
+            box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.45), 0 4px 14px rgba(30, 58, 138, 0.42);
+            filter: none;
+        }
+        .btn-left-microsim-pause.is-live-running:hover:not(:disabled) {
+            border-color: rgba(147, 197, 253, 0.95);
+            color: #fff;
+            filter: brightness(1.07);
+        }
+        .btn-left-microsim-pause.is-paused:not(.is-live-running) {
+            border-color: rgba(251, 191, 36, 0.55);
+            background: linear-gradient(180deg, rgba(55, 42, 18, 0.9) 0%, rgba(38, 28, 10, 0.95) 100%);
+            color: #fde68a;
+        }
+        .left-nav-block .nav-title { font-size: 10px; letter-spacing: 0.22em; color: #a89890; margin-bottom: 8px; font-weight: 600; }
+        .left-panel ul { list-style: none; padding: 0; margin: 0; max-height: none; }
+        .left-panel li {
+            padding: 11px 12px 11px 14px; cursor: pointer; border-radius: 6px; transition: background 0.2s, border-color 0.2s;
+            font-size: 13px; border: 1px solid transparent; margin-bottom: 4px; border-left: 3px solid transparent;
+        }
+        .left-panel li:hover { background: rgba(255, 100, 90, 0.08); color: #f0c4bc; }
+        .left-panel li.active {
+            background: rgba(255, 100, 90, 0.12); color: #ffb4a8;
+            border-left-color: #ff7b72; border-color: rgba(255, 120, 100, 0.15);
+        }
+        .gov-map-toast {
+            position: absolute; left: 12px; right: auto; bottom: 18px; transform: none; z-index: 1200;
+            max-width: min(380px, calc(100% - 440px));
+            padding: 10px 14px; border-radius: 8px; background: rgba(14, 22, 36, 0.96);
+            border: 1px solid rgba(255, 140, 120, 0.35); color: var(--text-color); font-size: 12px; line-height: 1.45;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.5); pointer-events: none; opacity: 0; transition: opacity 0.3s; text-align: left;
+        }
+        body.compact-hub .gov-map-toast {
+            max-width: min(340px, calc(100% - 320px));
+            bottom: 14px;
+        }
+        .gov-map-toast.show { opacity: 1; }
+        .map-signal-opt-impact {
+            display: none; position: absolute; z-index: 1240; right: 12px; top: calc(var(--gov-chrome-top) + 120px);
+            width: min(320px, 92vw); max-height: min(52vh, 420px); overflow-y: auto;
+            padding: 12px 14px 14px; border-radius: 12px;
+            background: linear-gradient(165deg, rgba(8, 22, 32, 0.97) 0%, rgba(6, 14, 24, 0.98) 100%);
+            border: 1px solid rgba(94, 234, 212, 0.4);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(94,234,212,0.08) inset;
+            pointer-events: auto;
+        }
+        .map-signal-opt-impact.visible { display: block; }
+        .map-signal-opt-impact .msoi-head {
+            font-size: 12px; font-weight: 700; letter-spacing: 0.08em; color: #5eead4;
+            margin: 0 28px 10px 0; line-height: 1.35;
+        }
+        .map-signal-opt-impact .msoi-close {
+            position: absolute; right: 8px; top: 8px; width: 28px; height: 28px; border: none; border-radius: 6px;
+            background: rgba(255,255,255,0.06); color: #94a3b8; font-size: 18px; line-height: 1; cursor: pointer;
+        }
+        .map-signal-opt-impact .msoi-close:hover { background: rgba(255,255,255,0.12); color: #e2e8f0; }
+        .map-signal-opt-impact .msoi-lead { font-size: 12px; color: #cbd5e1; line-height: 1.6; margin: 0 0 10px; }
+        .map-signal-opt-impact .msoi-sub { font-size: 11px; color: #94a3b8; margin: 0 0 8px; line-height: 1.5; }
+        .map-signal-opt-impact .msoi-ul { list-style: none; margin: 0; padding: 0; font-size: 11px; }
+        .map-signal-opt-impact .msoi-ul li {
+            display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+            padding: 6px 0; border-bottom: 1px solid rgba(100,116,139,0.22);
+        }
+        .map-signal-opt-impact .msoi-ul li:last-child { border-bottom: none; }
+        .map-signal-opt-impact .msoi-ul span { color: #e2e8f0; }
+        .map-signal-opt-impact .msoi-ul em { font-style: normal; color: #86efac; font-weight: 600; white-space: nowrap; }
+        .map-signal-opt-impact .msoi-note { font-size: 10px; color: #64748b; margin: 10px 0 0; line-height: 1.45; }
+        .leaflet-marker-icon .signal-relief-tag-inner {
+            text-align: center; min-width: 96px; padding: 5px 8px;
+            background: rgba(6, 28, 22, 0.94); border: 1px solid rgba(52, 211, 153, 0.55);
+            border-radius: 10px; color: #a7f3d0; font-size: 10px; line-height: 1.35;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.45);
+        }
+        .leaflet-marker-icon .signal-relief-tag-inner b { color: #6ee7b7; font-size: 12px; }
+        .gov-center-stack {
+            grid-column: 2; grid-row: 4;
+            display: flex; flex-direction: column; min-height: 0;
+            pointer-events: none;
+        }
+        .gov-center-stack .gov-map-hit-proxy { flex: 1; min-height: 0; pointer-events: none !important; }
+        .right-panel-view { display: none; }
+        .right-panel-view.active { display: block; }
+        .data-card {
+            background: linear-gradient(165deg, rgba(22, 34, 54, 0.88) 0%, rgba(10, 18, 32, 0.94) 100%);
+            padding: 14px 16px; border-radius: var(--radius-sm); margin-bottom: 12px;
+            border: 1px solid rgba(255, 130, 110, 0.14);
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+        }
+        .data-card .label { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; letter-spacing: 0.04em; }
+        .data-card .value { font-size: 26px; font-weight: 600; color: var(--primary-color); font-variant-numeric: tabular-nums; }
+        .data-card h4 { margin: 0 0 10px 0; font-size: 14px; color: var(--primary-color); letter-spacing: 0.04em; }
+        .police-view-rich .pvr-stats {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 6px;
+            margin: 0 0 12px;
+        }
+        .police-view-rich .pvr-stats.pvr-stats--signal {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+        .pvr-stat {
+            background: rgba(8, 14, 26, 0.85);
+            border: 1px solid rgba(51, 65, 85, 0.85);
+            border-radius: 8px;
+            padding: 8px 12px;
+            text-align: center;
+        }
+        .pvr-stat-k { display: block; font-size: 10px; color: #6b7c93; letter-spacing: 0.06em; margin-bottom: 4px; }
+        .pvr-stat-v { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; color: #e2e8f0; }
+        .pvr-stat-v.c-sev-high { color: #fb7185; }
+        .pvr-stat-v.c-sev-mid { color: #fbbf24; }
+        .pvr-stat-v.c-sev-low { color: #4ade80; }
+        .pvr-subtitle { font-size: 11px; font-weight: 600; color: #64748b; letter-spacing: 0.08em; text-transform: uppercase; margin: 10px 0 6px; }
+        .pvr-subtitle:first-of-type { margin-top: 0; }
+        .pvr-selected { border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.35); background: rgba(15, 23, 42, 0.65); padding: 12px; font-size: 12px; line-height: 1.55; color: #cbd5e1; min-height: 3.6em; }
+        .pvr-empty { color: #64748b; font-size: 12px; }
+        .pvr-mini-list { max-height: 168px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+        .pvr-mini-row {
+            display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+            padding: 8px 10px; font-size: 11px; font-weight: 500; color: #cbd5e1;
+            border-left: 3px solid rgba(100, 116, 139, 0.5); background: rgba(8, 14, 26, 0.5); border-radius: 4px;
+            cursor: pointer;
+            user-select: none;
+        }
+        .pvr-mini-row:hover { filter: brightness(1.08); border-left-color: rgba(148, 163, 184, 0.85); }
+        .pvr-mini-row:focus-visible { outline: 2px solid rgba(96, 165, 250, 0.65); outline-offset: 1px; }
+        .pvr-mini-row.is-high { border-left-color: #fb7185; }
+        .pvr-mini-row.is-mid { border-left-color: #fbbf24; }
+        .pvr-mini-row.is-low { border-left-color: #4ade80; }
+        .pvr-mini-meta { font-size: 10px; color: #64748b; }
+        .pvr-hint { font-size: 11px; color: #64748b; margin: 10px 0 0; line-height: 1.45; }
+        .pvr-sig-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+        .pvr-sig-actions .btn-action { width: auto; flex: 1; min-width: 88px; margin-top: 0; padding: 7px 10px; font-size: 11px; }
+        .pvr-sig-actions .btn-action:disabled { opacity: 0.45; cursor: not-allowed; filter: grayscale(0.3); }
+        .btn-action {
+            width: 100%; padding: 11px 16px; margin-top: 8px; font-size: 13px; font-weight: 600;
+            border: none; border-radius: var(--radius-sm); cursor: pointer;
+            background: linear-gradient(180deg, #e07064 0%, #b8443c 48%, #8a3028 100%);
+            color: #fffbf9;
+            box-shadow: 0 4px 16px rgba(180, 60, 50, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+            transition: transform 0.15s, filter 0.2s, box-shadow 0.2s;
+        }
+        .btn-action:hover { filter: brightness(1.07); box-shadow: 0 6px 22px rgba(200, 80, 70, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.14); }
+        .btn-action:active { transform: scale(0.98); }
+        .leaflet-div-icon { background: transparent; border: none; font-size: var(--icon-size); text-align: center; }
+        body.compact-hub .gov-ui { grid-template-columns: 1fr minmax(280px, 26vw); }
+        body.compact-hub .left-panel { display: none !important; }
+        body.compact-hub .right-panel.hud-panel { grid-column: 2; grid-row: 4; min-width: 0; }
+        body.compact-hub .header a.dev-link { display: none; }
+        body.compact-hub .gov-center-stack { grid-column: 1; grid-row: 4; }
+        body.compact-hub #hud-signal-delay-compare {
+            padding: 10px 12px; background: rgba(6, 12, 24, 0.82); border-radius: 8px;
+            border: 1px solid rgba(94, 234, 212, 0.28); font-size: 11px !important; color: #cbd5e1 !important;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+        }
+        body.compact-hub .hud-donut-wrap {
+            margin-top: 12px; padding-top: 12px;
+            border-top: 1px solid rgba(255, 120, 100, 0.18);
+        }
+        body.compact-hub .hud-card-title + .hud-analytics-block { margin-top: 4px; }
+        .right-panel.hud-panel {
+            grid-column: 3; grid-row: 4;
+            border-radius: var(--radius-lg); padding: 16px 16px 18px; overflow-y: auto; max-height: 100%;
+            background: linear-gradient(175deg, rgba(12, 20, 36, 0.95) 0%, rgba(8, 14, 26, 0.97) 50%, rgba(6, 10, 18, 0.99) 100%);
+            backdrop-filter: blur(16px) saturate(1.2);
+            border: 1px solid rgba(255, 130, 110, 0.22);
+            box-shadow: var(--shadow-elevated), var(--glow-coral), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            position: relative;
+        }
+        .right-panel.hud-panel::before {
+            content: ''; position: absolute; inset: 0; border-radius: var(--radius-lg); pointer-events: none;
+            background: repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(255, 110, 90, 0.025) 3px, rgba(255, 110, 90, 0.025) 4px);
+            opacity: 0.5; mask-image: linear-gradient(180deg, transparent, #000 10%, #000 90%, transparent);
+        }
+        .accident-marker { animation: pulse-red 1.5s infinite; }
+        @keyframes pulse-red { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.15); opacity: 0.75; } 100% { transform: scale(1); opacity: 1; } }
+        .marker-cluster-small, .marker-cluster-medium, .marker-cluster-large { background: rgba(255, 77, 79, 0.55) !important; }
+        .marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div { background: rgba(180, 30, 35, 0.92) !important; color: #fff !important; font-weight: 600; }
+        /* 与政府端一致的路况总览组件 */
+        .left-panel { display: flex; flex-direction: column; min-height: 0; }
+        .gov-ticker-pack { display: contents; }
+        .gov-ticker-pack .accident-ticker-wrap {
+            background: linear-gradient(90deg, rgba(30, 58, 75, 0.35) 0%, rgba(11, 20, 35, 0.92) 40%);
+            border: 1px solid rgba(94, 234, 212, 0.14);
+        }
+        .gov-ticker-pack .accident-ticker-label {
+            color: #0d1a24;
+            background: linear-gradient(180deg, #4ecdc4 0%, #3a9d8f 100%);
+        }
+        .gov-ticker-pack .accident-ticker-label::before {
+            background: #ff4757;
+            box-shadow: 0 0 10px #ff4757;
+        }
+        .gov-ticker-pack .accident-ticker-track { border-radius: 0 10px 10px 0; }
+        .gov-ticker-pack .ticker-item { border-right: 1px solid rgba(94, 234, 212, 0.1); }
+        #ticker-detail-pop {
+            display: none; position: fixed; z-index: 5000; max-width: min(420px, 92vw); padding: 14px 16px;
+            background: linear-gradient(165deg, #1a2838 0%, #121c2a 100%);
+            border: 1px solid rgba(94, 234, 212, 0.28); border-radius: 10px;
+            box-shadow: 0 16px 48px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04) inset;
+            font-size: 12px; line-height: 1.55; color: var(--text-color); pointer-events: none;
+        }
+        #ticker-detail-pop.visible { display: block; pointer-events: auto; }
+        #ticker-detail-pop .td-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em; color: #5eead4; margin-bottom: 8px; opacity: 0.85; }
+        #ticker-detail-pop .td-row { display: flex; gap: 8px; margin: 4px 0; color: var(--text-muted); }
+        #ticker-detail-pop .td-row b { color: #e2e8f0; font-weight: 600; }
+        .ticker-sev { font-size: 10px; padding: 2px 7px; border-radius: 4px; font-weight: 600; }
+        .t-sev-high { background: rgba(180, 60, 70, 0.35); color: #f0b8be; border: 1px solid rgba(220, 90, 100, 0.45); }
+        .t-sev-mid { background: rgba(180, 120, 60, 0.25); color: #e8d4b0; border: 1px solid rgba(200, 150, 80, 0.4); }
+        .t-sev-low { background: rgba(60, 110, 100, 0.35); color: #a8ddd4; border: 1px solid rgba(94, 234, 212, 0.25); }
+        .ticker-type { font-weight: 600; color: #e8edf5; }
+        .ticker-where { color: #8b96ab; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+        .ticker-meta { color: #5c677d; font-size: 11px; }
+        .ticker-dot { color: rgba(94,234,212,0.2); padding: 0 8px; font-size: 9px; }
+        .ticker-item { cursor: pointer; }
+        .gov-acc-pin { background: transparent !important; border: none !important; }
+        .gov-acc-pin-inner { display: flex; flex-direction: column; align-items: center; width: 92px; pointer-events: auto; filter: drop-shadow(0 3px 8px rgba(0,0,0,0.55)); }
+        .gov-acc-pin-inner .pin-top { display: flex; align-items: center; justify-content: center; gap: 2px; background: linear-gradient(180deg, #1a2744 0%, #0d1829 100%); border: 1px solid rgba(100,255,218,0.35); border-radius: 8px 8px 4px 4px; padding: 4px 6px; font-size: 18px; line-height: 1; }
+        .gov-acc-pin-inner .pin-cap { margin-top: 3px; font-size: 10px; color: #e6f1ff; background: rgba(0,0,0,0.72); padding: 2px 6px; border-radius: 4px; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; border: 1px solid rgba(255,255,255,0.12); }
+        .gov-acc-pin-inner .pin-eta { font-size: 12px; font-weight: 700; color: #5eead4; margin-top: 3px; text-shadow: 0 0 12px rgba(94,234,212,0.45); letter-spacing: 0.02em; }
+        .left-list-block { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 8px 10px 10px; background: rgba(5, 10, 20, 0.5); }
+        .left-list-block.hidden { display: none; }
+        .left-list-head { font-size: 11px; font-weight: 600; color: #5eead4; letter-spacing: 0.1em; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; }
+        .left-search { width: 100%; box-sizing: border-box; padding: 6px 8px; font-size: 11px; border-radius: 4px; border: 1px solid rgba(0, 180, 200, 0.2); background: #0a1525; color: #c5cee0; margin-bottom: 8px; }
+        .left-list-scroll { flex: 1; overflow-y: auto; min-height: 80px; }
+        .left-panel-charts {
+            flex-shrink: 0; padding: 12px; border-top: 1px solid rgba(255, 100, 90, 0.15);
+            background: rgba(10, 20, 35, 0.45);
+            max-height: 420px; overflow-y: auto;
+        }
+        .left-panel-charts .hud-card-title {
+            font-size: 10px; margin: 10px 0 6px; color: rgba(255, 160, 140, 0.85);
+        }
+        .left-panel-charts .hud-analytics-block {
+            margin-bottom: 8px; padding: 8px; background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 120, 100, 0.1);
+        }
+        .left-panel-charts .hud-analytics-row {
+            font-size: 10px; margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .left-panel-charts .hud-analytics-row:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+        .left-panel-charts .hud-donut-wrap { gap: 8px; margin: 4px 0; }
+        .left-panel-charts .hud-legend { font-size: 10px; line-height: 1.4; }
+        .left-panel-charts .hud-chart-wrap { padding: 4px; background: rgba(0, 0, 0, 0.2); border-color: rgba(255, 120, 100, 0.1); }
+        .left-incident-item {
+            padding: 8px; margin-bottom: 6px; border-radius: 4px;
+            background: rgba(15, 28, 45, 0.9); border: 1px solid rgba(0, 160, 200, 0.08);
+            font-size: 11px; line-height: 1.45; cursor: pointer; transition: background 0.15s, border-color 0.15s;
+        }
+        .left-incident-item:hover { background: rgba(0, 60, 80, 0.35); border-color: rgba(94, 234, 212, 0.25); }
+        .left-incident-item .lit-meta { color: #5c6d82; font-size: 10px; margin-top: 4px; }
+        .left-incident-item .lit-tag { display: inline-block; padding: 1px 5px; border-radius: 2px; font-size: 9px; margin-right: 4px; }
+        .map-flash-overlay {
+            position: absolute; inset: 0; border-radius: 0; pointer-events: none; z-index: 1150;
+            background: radial-gradient(circle at 50% 50%, rgba(94, 234, 212, 0.18) 0%, transparent 65%);
+            opacity: 0; transition: opacity 0.35s ease;
+        }
+        .map-flash-overlay.on { opacity: 1; }
+        .gov-live-video-panel {
+            position: absolute; top: var(--gov-chrome-top); left: 12px; z-index: 1250;
+            width: min(340px, 42vw); border-radius: 10px; overflow: hidden;
+            background: linear-gradient(180deg, #0d1829 0%, #070f18 100%);
+            border: 1px solid rgba(94, 234, 212, 0.35);
+            box-shadow: 0 16px 48px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04) inset;
+            pointer-events: auto;
+        }
+        .gov-live-video-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; background: rgba(20, 35, 55, 0.95); border-bottom: 1px solid var(--border-color); font-size: 12px; font-weight: 600; color: #e2e8f0; }
+        .gov-live-video-head button { background: transparent; border: none; color: #8892b0; font-size: 20px; line-height: 1; cursor: pointer; padding: 0 4px; border-radius: 4px; }
+        .gov-live-video-body { aspect-ratio: 16 / 10; background: #050a12; position: relative; }
+        .gov-live-video-placeholder { height: 100%; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; padding: 16px; text-align: center; font-size: 11px; color: #6b7a93; line-height: 1.5; }
+        .gov-live-video-rec { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: #ff4757; }
+        /* 原地图顶栏已移除；保留供脚本更新的 id（不可见） */
+        .map-legacy-metrics-sr {
+            position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+            overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; pointer-events: none;
+        }
+        .hud-microsim-dock {
+            display: none;
+            margin-bottom: 12px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(94, 234, 212, 0.22);
+            background: rgba(6, 14, 24, 0.88);
+        }
+        .hud-microsim-dock.visible { display: block; }
+        .hud-microsim-dock-title {
+            font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+            color: #64748b; margin-bottom: 8px; font-weight: 600;
+        }
+        .map-mode-switch {
+            position: absolute; z-index: 1105; left: 10px; top: calc(var(--gov-chrome-top) + 6px);
+            display: flex; flex-direction: column; gap: 6px; align-items: stretch;
+            pointer-events: auto; max-width: 138px;
+        }
+        .map-mode-label {
+            font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+            color: #64748b; margin-bottom: 2px; padding-left: 2px;
+        }
+        .map-mode-btn {
+            padding: 9px 12px; font-size: 12px; font-weight: 600;
+            border-radius: var(--radius-sm); border: 1px solid rgba(120, 150, 180, 0.35);
+            background: linear-gradient(180deg, rgba(18, 28, 42, 0.96) 0%, rgba(8, 14, 24, 0.98) 100%);
+            color: #e2e8f0; cursor: pointer;
+            text-align: center; line-height: 1.35;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            transition: border-color 0.2s, box-shadow 0.2s, color 0.2s;
+        }
+        .map-mode-btn:hover { border-color: rgba(94, 234, 212, 0.35); color: #fff; }
+        .map-mode-btn.active {
+            border-color: rgba(251, 146, 60, 0.85); color: #fffaf0;
+            background: linear-gradient(180deg, rgba(90, 48, 20, 0.95) 0%, rgba(45, 28, 12, 0.98) 100%);
+            box-shadow: 0 0 20px rgba(251, 146, 60, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        }
+        /* 嵌入式紧凑模式：隐藏侧栏时的视图切换（与开发者枢纽列表同步） */
+        .compact-hub-view-nav {
+            display: none;
+            position: absolute;
+            z-index: 1106;
+            left: 10px;
+            top: calc(var(--gov-chrome-top) + 220px);
+            flex-direction: column;
+            gap: 2px;
+            width: max-content;
+            max-width: 118px;
+            pointer-events: auto;
+        }
+        body.compact-hub .compact-hub-view-nav { display: flex; }
+        body.compact-hub-dev #compact-hub-view-nav { display: none !important; }
+        body.compact-hub .map-mode-label,
+        body.compact-hub .compact-hub-view-nav .cvn-label,
+        body.compact-hub .header-note { display: none; }
+        .compact-hub-view-nav .cvn-label {
+            font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
+            color: #64748b; padding-left: 2px; margin-bottom: 2px;
+        }
+        .compact-hub-view-nav button {
+            padding: 5px 8px; font-size: 11px; font-weight: 500; text-align: center;
+            border-radius: 8px; cursor: pointer; border: 1px solid rgba(51, 65, 85, 0.9);
+            background: rgba(15, 23, 42, 0.94); color: #cbd5e1;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+            transition: transform 0.1s ease, border-color 0.15s, background 0.15s, color 0.15s;
+        }
+        .compact-hub-view-nav button:hover {
+            border-color: rgba(96, 165, 250, 0.55); color: #f1f5f9;
+        }
+        .compact-hub-view-nav button:active { transform: scale(0.97); }
+        .compact-hub-view-nav button.active {
+            border-color: #3b82f6; color: #fff;
+            background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+            box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.35), 0 4px 14px rgba(37, 99, 235, 0.25);
+        }
+        .map-layer-tools {
+            position: absolute; z-index: 1095; top: calc(var(--gov-chrome-top) + 44px); right: 10px; display: none; flex-direction: column; gap: 6px; align-items: flex-end;
+        }
+        .map-layer-tools.visible { display: flex; }
+        .map-layer-tools--legacy { display: none !important; }
+        .map-layer-tools button {
+            padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(0, 200, 200, 0.35);
+            background: rgba(8, 18, 35, 0.94); color: #a8e8df; cursor: pointer; font-size: 11px; white-space: nowrap;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.45);
+        }
+        .map-layer-tools button.on { border-color: #f97316; color: #fdba74; background: rgba(60, 30, 10, 0.75); }
+        .map-ui-floating { position: absolute; z-index: 1100; top: var(--gov-chrome-top); right: 10px; display: none; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: auto; }
+        .map-ui-floating button { padding: 8px 14px; border-radius: 6px; border: 1px solid #5eead4; background: rgba(10,25,47,0.94); color: #5eead4; cursor: pointer; font-size: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.4); }
+        .leaflet-container.map-heat-on .leaflet-tile-pane { filter: brightness(0.88) saturate(0.95); transition: filter 0.35s ease; }
+        .leaflet-interactive.congestion-hotspot-hit { cursor: pointer; }
+        .hud-strip {
+            display: flex; align-items: center; justify-content: space-between;
+            font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase;
+            color: rgba(0, 230, 200, 0.55); margin-bottom: 10px; padding-bottom: 8px;
+            border-bottom: 1px solid rgba(0, 212, 255, 0.15);
+            font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+        }
+        .hud-strip span:last-child { color: #00ffc8; letter-spacing: 0.1em; }
+        .hud-metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+        .hud-metric-mini {
+            background: rgba(8, 20, 35, 0.85);
+            border: 1px solid rgba(0, 212, 255, 0.12);
+            border-radius: 6px; padding: 8px 10px;
+            font-family: ui-monospace, Consolas, monospace;
+        }
+        .hud-metric-mini .hm-label { font-size: 10px; color: #5a6d82; letter-spacing: 0.06em; }
+        .hud-metric-mini .hm-val { font-size: 18px; font-weight: 700; color: #5eead4; margin-top: 4px; text-shadow: 0 0 20px rgba(94, 234, 212, 0.25); }
+        .hud-metric-mini .hm-unit { font-size: 11px; color: #6b7c90; font-weight: 400; }
+        .hud-card-title {
+            font-size: 11px; letter-spacing: 0.14em; color: rgba(0, 230, 200, 0.75);
+            margin: 14px 0 8px; font-weight: 600;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .hud-card-title::before { content: ''; width: 4px; height: 4px; background: #00ffc8; box-shadow: 0 0 8px #00ffc8; border-radius: 1px; }
+        .hud-chart-wrap {
+            position: relative;
+            background: rgba(6, 14, 28, 0.9);
+            border: 1px solid rgba(0, 212, 255, 0.1);
+            border-radius: 8px; padding: 10px 8px 6px; margin-top: 4px;
+        }
+        .hud-chart-wrap svg { width: 100%; height: auto; display: block; }
+        .hud-chart-note { font-size: 10px; color: #5a6d82; margin-top: 8px; line-height: 1.5; font-family: ui-monospace, Consolas, monospace; }
+        .hud-global-signal-card {
+            padding: 14px 14px 16px;
+            margin-bottom: 12px;
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(94, 234, 212, 0.38);
+            background: linear-gradient(165deg, rgba(8, 38, 48, 0.92) 0%, rgba(8, 18, 32, 0.95) 100%);
+            box-shadow: var(--glow-cyan), 0 8px 28px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        }
+        .ppt-demo-card {
+            margin-top: 12px;
+            padding: 14px;
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(251, 191, 36, 0.35);
+            background: linear-gradient(165deg, rgba(40, 28, 12, 0.75) 0%, rgba(12, 14, 22, 0.95) 100%);
+            box-shadow: 0 0 28px rgba(251, 191, 36, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        }
+        .ppt-demo-card > .hud-card-title:first-child { margin-top: 0; }
+        .ppt-demo-card .hud-card-title {
+            color: #fde68a !important;
+            text-shadow: 0 0 20px rgba(251, 191, 36, 0.2);
+        }
+        .ppt-demo-card .hud-card-title::before {
+            background: #fbbf24;
+            box-shadow: 0 0 10px rgba(251, 191, 36, 0.65);
+        }
+        .hud-map-global-sig-btn {
+            border-color: rgba(94, 234, 212, 0.55) !important;
+            color: #7ff5e0 !important;
+            font-weight: 600 !important;
+            box-shadow: 0 0 14px rgba(94, 234, 212, 0.2);
+        }
+        .hud-map-global-sig-btn:hover { filter: brightness(1.08); }
+        .hud-analytics-block {
+            font-size: 11px;
+            line-height: 1.55;
+            color: #94a3b8;
+            padding: 10px 10px 12px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            background: rgba(6, 14, 28, 0.75);
+            border: 1px solid rgba(0, 212, 255, 0.1);
+        }
+        .hud-analytics-row { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid rgba(100, 116, 139, 0.2); }
+        .hud-analytics-row:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+        .hud-stat-note { font-size: 9px; color: #5c677d; letter-spacing: 0.04em; }
+        .hud-120-line {
+            font-size: 12px; color: #9db0c8; line-height: 1.55;
+            padding: 10px 12px; background: rgba(0, 40, 50, 0.35);
+            border-left: 3px solid #00d4aa; border-radius: 0 6px 6px 0; margin-top: 8px;
+        }
+        .data-card.hud-card {
+            background: rgba(12, 22, 38, 0.65);
+            border: 1px solid rgba(0, 212, 255, 0.1);
+            box-shadow: none;
+        }
+        .data-card.hud-card .label { color: #6b8299; font-size: 10px; letter-spacing: 0.12em; }
+        .data-card.hud-card .value { font-family: ui-monospace, Consolas, monospace; font-size: 32px; letter-spacing: -0.02em; }
+        .data-card .value.value-pulse { animation: val-glow 2.2s ease-in-out infinite; }
+        @keyframes val-glow { 0%,100%{ text-shadow: none; } 50%{ text-shadow: 0 0 12px rgba(100,255,218,0.45); } }
+        .trend-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; margin-top: 6px; }
+        .trend-up { color: #3fb950; }
+        .trend-down { color: #ff7b72; }
+        .hud-donut-wrap { display: flex; align-items: center; gap: 12px; margin: 6px 0 4px; position: relative; }
+        .hud-donut-wrap svg { flex-shrink: 0; filter: drop-shadow(0 0 12px rgba(0, 200, 180, 0.15)); }
+        .hud-legend { flex: 1; font-size: 11px; line-height: 1.65; color: #8b9cb0; }
+        .hud-legend span { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+        .hud-slice { cursor: crosshair; }
+        .hud-bar-hit { cursor: crosshair; fill: transparent; pointer-events: all; }
+        #hud-line-svg { cursor: crosshair; }
+        .hud-line-hit { pointer-events: all; }
+        .leaflet-container.heat-focus-mode .leaflet-tile-pane {
+            filter: brightness(0.5) saturate(0.78) contrast(0.9);
+            transition: filter 0.45s ease;
+        }
+        /* Leaflet 默认 popup 层 z-index≈650，低于地图悬浮控件，会导致警情弹窗被挡；抬高整块 popup 图层层级 */
+        #map.leaflet-container .leaflet-popup-pane {
+            z-index: 1260 !important;
+        }
+        /* 仿真热力：拥堵格点上的全域调控效果标签（与 police_overview refreshMicrosimTrafficHeatLayer 联动） */
+        .heat-flow-improve-pin {
+            background: transparent !important;
+            border: none !important;
+        }
+        .heat-flow-improve-inner {
+            background: rgba(6, 16, 28, 0.92);
+            border: 1px solid rgba(94, 234, 212, 0.5);
+            border-radius: 8px;
+            padding: 6px 10px 7px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 80, 80, 0.12) inset;
+            font-size: 11px;
+            color: #e2e8f0;
+            text-align: center;
+            line-height: 1.35;
+            white-space: nowrap;
+            pointer-events: none;
+        }
+        .heat-flow-improve-inner.hfi-wait { border-color: rgba(251, 191, 36, 0.45); }
+        .heat-flow-improve-inner .hfi-title {
+            font-size: 10px; color: #5eead4; letter-spacing: 0.08em; margin-bottom: 3px; font-weight: 600;
+        }
+        .heat-flow-improve-inner .hfi-row { color: #cbd5e1; }
+        .heat-flow-improve-inner .hfi-down { color: #5eead4; font-weight: 700; margin-right: 8px; }
+        .heat-flow-improve-inner .hfi-up { color: #86efac; font-weight: 700; }
+        .leaflet-popup-content-wrapper .leaflet-popup-content {
+            max-height: min(72vh, 520px) !important;
+            overflow-y: auto !important;
+            box-sizing: border-box;
+        }
+        .leaflet-popup-content-wrapper.police-sig-popup {
+            margin-top: 28px !important;
+        }
+        .police-sig-popup .leaflet-popup-content {
+            padding: 14px 14px 18px !important;
+            margin-top: 0 !important;
+        }
+        .police-acc-popup .leaflet-popup-content { padding: 16px 12px 22px; }
+        .police-acc-popup .gov-acc-popup-spacer { min-height: 22px; }
+        .police-acc-popup .popup-actions {
+            margin-top: 32px !important;
+            padding-top: 16px;
+            border-top: 1px solid rgba(148,163,184,0.22);
+        }
+        .leaflet-popup-content .gov-acc-act { pointer-events: auto !important; cursor: pointer; }
+        .leaflet-container.map-heat-on .leaflet-heatmap-layer-pane { opacity: 1 !important; }
+        body.police-app .map-layer-tools { top: calc(var(--gov-chrome-top) + 52px); flex-wrap: wrap; max-width: 200px; }
+        .map-microsim-tools {
+            display: none; pointer-events: auto; flex-direction: column; align-items: stretch; gap: 8px;
+        }
+        .map-microsim-tools.visible { display: flex; }
+        .map-microsim-tools-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+        .map-microsim-tools button { font-size: 10px; padding: 4px 8px; border-radius: 6px; cursor: pointer; }
+        /* 本次强制实时：引擎处于实时模式（非离线回放）时深蓝高亮，便于识别当前状态 */
+        #btn-microsim-force-live.is-force-live-active {
+            border-color: rgba(96, 165, 250, 0.92) !important;
+            color: #eff6ff !important;
+            font-weight: 700;
+            background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 48%, #1e3a8a 100%) !important;
+            box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.45), 0 4px 14px rgba(30, 58, 138, 0.42);
+        }
+        #btn-microsim-force-live.is-force-live-active:hover {
+            filter: brightness(1.07);
+        }
+        .map-microsim-tools .microsim-hint {
+            font-size: 10px; color: #9dd4cb; line-height: 1.5;
+            display: block; width: 100%; margin: 0; padding: 0;
+        }
+        #scenario-inline-panel.scenario-floating {
+            position: relative; flex-shrink: 0; margin-top: auto; width: 100%; box-sizing: border-box;
+            height: 30vh; max-height: 300px; min-height: 180px; overflow: hidden; padding: 10px 14px 12px;
+            background: rgba(7, 15, 28, 0.94); backdrop-filter: blur(10px); border: 1px solid var(--border-color);
+            border-radius: 8px; display: none; flex-direction: column; box-shadow: 0 12px 48px rgba(0,0,0,0.55); pointer-events: auto;
+        }
+        #scenario-inline-panel.scenario-floating[style*="flex"] { display: flex !important; }
+        .scenario-inline-panel h3 { margin: 0 0 6px; font-size: 14px; color: #ff9b8a; letter-spacing: 0.02em; flex-shrink: 0; }
+        .scenario-top-nav { display: flex; align-items: center; gap: 10px; flex-shrink: 0; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border-color); }
+        .btn-scenario-back { padding: 6px 12px; font-size: 12px; border-radius: 6px; border: 1px solid rgba(255, 150, 130, 0.45); background: rgba(40, 28, 28, 0.9); color: #ff9b8a; cursor: pointer; font-weight: 500; }
+        .scenario-panel-body { flex: 1; min-height: 0; position: relative; }
+        .scenario-view-screen { display: none; position: absolute; inset: 0; overflow-y: auto; padding-right: 4px; box-sizing: border-box; }
+        .scenario-view-screen.active { display: block; }
+        .non-map-view.audit-floating {
+            display: none; position: absolute; inset: 12px; z-index: 2000; background: rgba(8, 14, 24, 0.98);
+            border: 1px solid rgba(255, 120, 100, 0.25); border-radius: 10px; padding: 20px; overflow: auto;
+        }
+        .log-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 12px; }
+        .log-table th, .log-table td { border: 1px solid var(--border-color); padding: 8px; text-align: left; }
+        .drone-marker-pulse { font-size: 20px; animation: drone-float 2.2s ease-in-out infinite; filter: drop-shadow(0 0 6px rgba(120,200,255,0.8)); }
+        @keyframes drone-float { 0%,100%{ transform: translateY(0);} 50%{ transform: translateY(-3px);} }
+        .car-demo-icon { font-size: 15px; display: inline-block; animation: car-bob 1.8s ease-in-out infinite; }
+        @keyframes car-bob { 0%,100%{ transform: translateX(0);} 50%{ transform: translateX(2px);} }
+        .spec-veh-icon { font-size: 28px; animation: spec-blink 0.9s ease-in-out infinite; }
+        @keyframes spec-blink { 0%,100%{ filter: brightness(1);} 50%{ filter: brightness(1.35);} }
+        .police-asset-icon { filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5)); }
+        #hud-chart-tooltip {
+            position: fixed; z-index: 6000; max-width: 240px; padding: 9px 11px;
+            background: rgba(10, 18, 32, 0.97); border: 1px solid rgba(94, 234, 212, 0.35);
+            border-radius: 8px; font-size: 11px; line-height: 1.5; color: #e2e8f0;
+            pointer-events: none; box-shadow: 0 12px 36px rgba(0,0,0,0.55);
+            display: none; font-variant-numeric: tabular-nums;
+        }
+        #hud-chart-tooltip.visible { display: block; }
+        #hud-chart-tooltip b { color: #5eead4; font-weight: 600; }
+        .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; background: var(--border-color); margin-right: 4px; }
+        .popup-actions { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+        .gov-popup-btn {
+            width: 100%; margin-top: 6px; padding: 8px 12px; font-size: 12px; font-weight: 500;
+            border-radius: 6px; cursor: pointer; text-align: center;
+            background: rgba(25, 40, 58, 0.95);
+            border: 1px solid rgba(94, 234, 212, 0.22);
+            color: #a8d4cc;
+        }
+        .gov-acc-act.done-flash { animation: btn-ok 0.6s ease; }
+        @keyframes btn-ok { 0%{ box-shadow: 0 0 0 0 rgba(94,234,212,0.6);} 100%{ box-shadow: 0 0 0 8px transparent;} }
+        .panel-flash { animation: panel-glow 0.85s ease; }
+        @keyframes panel-glow { 0%,100%{ box-shadow: 0 2px 12px rgba(0,0,0,0.2);} 50%{ box-shadow: 0 0 0 1px rgba(94,234,212,0.35), 0 8px 28px rgba(45,106,98,0.35);} }
+        .btn-secondary {
+            background: transparent;
+            border: 1px solid rgba(94, 234, 212, 0.35);
+            color: #9dd4cb;
+        }
+        #microsim-autosave-modal {
+            display: none; position: fixed; inset: 0; z-index: 8000; align-items: center; justify-content: center;
+            background: rgba(4, 8, 16, 0.72); backdrop-filter: blur(6px); padding: 16px; box-sizing: border-box;
+        }
+        #microsim-autosave-modal.show { display: flex; }
+        .microsim-autosave-panel {
+            max-width: min(440px, 96vw); padding: 20px 22px; border-radius: 12px;
+            background: linear-gradient(165deg, rgba(14, 22, 36, 0.98) 0%, rgba(8, 14, 24, 0.99) 100%);
+            border: 1px solid rgba(94, 234, 212, 0.35);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.55);
+            color: #e2e8f0; font-size: 13px; line-height: 1.55;
+        }
+        .microsim-autosave-panel h3 { margin: 0 0 10px; font-size: 15px; color: #5eead4; letter-spacing: 0.04em; }
+        .microsim-autosave-panel .microsim-phase-row { font-size: 11px; color: #94a3b8; margin: 6px 0; padding: 6px 8px; background: rgba(0,0,0,0.25); border-radius: 6px; }
+        .microsim-autosave-panel .microsim-phase-row b { color: #e2e8f0; }
+        #btn-microsim-autosave-ok {
+            margin-top: 14px; padding: 8px 18px; border-radius: 8px; border: 1px solid rgba(94,234,212,0.4);
+            background: rgba(45, 106, 98, 0.95); color: #ecfdf5; font-size: 13px; cursor: pointer; font-weight: 600;
+        }
+        /* 与 map 全幅铺底 + 左右侧栏叠加一致：视口 flex 居中会偏右，面板相对左移以对齐「露出地图」几何中心 */
+        #microsim-spawn-ready-modal {
+            display: none; position: fixed; inset: 0; z-index: 8000; align-items: center; justify-content: center;
+            background: rgba(4, 8, 16, 0.72); backdrop-filter: blur(6px); padding: 16px; box-sizing: border-box;
+        }
+        #microsim-spawn-ready-modal.show { display: flex; }
+        #microsim-spawn-ready-modal .microsim-autosave-panel {
+            position: relative;
+            left: calc(-1 * clamp(34px, calc((380px - 300px) / 2 + 3px), 50px));
+            max-width: min(400px, min(96vw, calc(100vw - 100px)));
+        }
+        body.compact-hub #microsim-spawn-ready-modal .microsim-autosave-panel {
+            left: calc(-1 * min(154px, calc(13vw + 8px)));
+            max-width: min(380px, 94vw);
+        }
+        #btn-microsim-spawn-ready-ok {
+            margin-top: 14px; padding: 8px 22px; border-radius: 8px; border: 1px solid rgba(94,234,212,0.45);
+            background: rgba(45, 106, 98, 0.95); color: #ecfdf5; font-size: 13px; cursor: pointer; font-weight: 600;
+        }
+        .map-microsim-relief-banner {
+            display: none; position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 5100;
+            width: min(560px, 94vw); padding: 12px 36px 14px 14px; box-sizing: border-box;
+            background: linear-gradient(165deg, rgba(10, 22, 38, 0.97) 0%, rgba(6, 10, 18, 0.99) 100%);
+            border: 1px solid rgba(94, 234, 212, 0.35);
+            border-radius: 12px;
+            box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+            color: #e2e8f0; font-size: 12px; line-height: 1.55;
+        }
+        .map-microsim-relief-banner.visible { display: block; }
+        .map-microsim-relief-banner .mmrb-close {
+            position: absolute; top: 6px; right: 8px; width: 28px; height: 28px; border: none; border-radius: 6px;
+            background: rgba(255, 255, 255, 0.06); color: #94a3b8; font-size: 18px; line-height: 1; cursor: pointer;
+        }
+        .map-microsim-relief-banner .mmrb-close:hover { color: #e2e8f0; background: rgba(255, 255, 255, 0.1); }
+        .map-microsim-relief-banner .mmrb-title {
+            font-weight: 700; color: #5eead4; margin: 0 0 8px; font-size: 13px; letter-spacing: 0.04em;
+        }
+        .map-microsim-relief-banner .mmrb-lead { margin: 0 0 6px; }
+        .map-microsim-relief-banner .mmrb-meta { margin: 0; color: #94a3b8; font-size: 11px; }
+        .map-microsim-relief-banner .mmrb-chart { margin-top: 6px; }
+        /* 一键全域调控后：底部实时条 — 相对「露出地图」略偏左，且 left 取 max(地图中心, 左下 gov 提示条右侧 + 估算半宽)，避免与 .gov-map-toast 叠盖 */
+        .map-global-signal-live-bar {
+            display: none;
+            position: absolute;
+            --mgslb-map-center-x: calc(50% - clamp(34px, calc((380px - 300px) / 2 + 3px), 50px));
+            /* 提示条：left 12px、max-width≈min(380,100vw-440)；半宽按约 186px（条宽约 372）留空，避免任何屏宽下左缘切入 */
+            --mgslb-clear-toast-x: calc(12px + min(380px, calc(100vw - 440px)) + 18px + min(186px, 24vw));
+            left: max(var(--mgslb-map-center-x), var(--mgslb-clear-toast-x));
+            bottom: 52px;
+            transform: translateX(-50%);
+            z-index: 5080;
+            width: min(372px, calc(100vw - 32px));
+            max-width: calc(100vw - 340px);
+            padding: 9px 12px;
+            box-sizing: border-box;
+            background: linear-gradient(90deg, rgba(8, 26, 32, 0.94) 0%, rgba(12, 40, 42, 0.92) 50%, rgba(8, 26, 32, 0.94) 100%);
+            border: 1px solid rgba(94, 234, 212, 0.42); border-radius: 10px;
+            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+            color: #cbd5e1; font-size: 12px; line-height: 1.5; text-align: center;
+        }
+        .map-global-signal-live-bar.visible { display: block; }
+        .map-global-signal-live-bar .mgslb-label {
+            display: block; font-size: 10px; letter-spacing: 0.12em; color: #5eead4; margin-bottom: 4px; font-weight: 600;
+        }
+        .map-global-signal-live-bar .mgslb-text strong { font-weight: 700; }
+        .map-wrap:has(.map-microsim-relief-banner.visible) .map-global-signal-live-bar {
+            bottom: min(200px, 38vh);
+        }
+        /* 事故快报/全域 toast 展开时抬高，避免与多行文案竖向重叠 */
+        .map-wrap:has(.gov-map-toast.show) .map-global-signal-live-bar.visible {
+            bottom: clamp(100px, 22vh, 132px);
+        }
+        .map-wrap:has(.gov-map-toast.show):has(.map-microsim-relief-banner.visible) .map-global-signal-live-bar {
+            bottom: min(220px, 42vh);
+        }
+        body.compact-hub .map-global-signal-live-bar {
+            --mgslb-map-center-x: calc(50% - min(154px, calc(13vw + 8px)));
+            --mgslb-clear-toast-x: calc(12px + min(340px, calc(100vw - 320px)) + 16px + min(178px, 22vw));
+            left: max(var(--mgslb-map-center-x), var(--mgslb-clear-toast-x));
+            width: min(360px, calc(100vw - 40px));
+            max-width: calc(100vw - min(300px, 28vw));
+        }
+        /* 警情处置：小尺寸白框；相对视口几何中心向左下偏移，对齐三栏布局下「实际视觉中心」（地图区略偏左下） */
+        #police-acc-dispose-modal {
+            --acc-float-nudge-x: -40px;
+            --acc-float-nudge-y: 48px;
+            display: none;
+            position: fixed;
+            left: 50%;
+            top: 50%;
+            transform: translate(calc(-50% + var(--acc-float-nudge-x)), calc(-50% + var(--acc-float-nudge-y)));
+            z-index: 7500;
+            max-width: min(300px, calc(100vw - 20px));
+            pointer-events: none;
+        }
+        body.compact-hub #police-acc-dispose-modal {
+            --acc-float-nudge-x: -24px;
+            --acc-float-nudge-y: 36px;
+        }
+        #police-acc-dispose-modal.show { display: block; }
+        #police-acc-dispose-modal .police-acc-dispose-panel {
+            position: relative;
+            pointer-events: auto;
+            width: min(300px, 92vw);
+            overflow: visible;
+            padding: 10px 30px 14px 10px;
+            border-radius: 10px;
+            background: #fff;
+            color: #1e293b;
+            border: 1px solid rgba(0, 0, 0, 0.12);
+            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28), 0 2px 6px rgba(0, 0, 0, 0.1);
+            font-size: 12px;
+        }
+        #police-acc-dispose-modal #police-acc-dispose-body {
+            max-height: min(52vh, 400px);
+            overflow-x: hidden;
+            overflow-y: auto;
+        }
+        #police-acc-dispose-modal .police-acc-dispose-close {
+            position: absolute;
+            top: 2px;
+            right: 4px;
+            width: 26px;
+            height: 26px;
+            border: none;
+            border-radius: 5px;
+            background: rgba(15, 23, 42, 0.06);
+            color: #64748b;
+            font-size: 16px;
+            line-height: 1;
+            cursor: pointer;
+        }
+        #police-acc-dispose-modal .police-acc-dispose-close:hover { background: rgba(15, 23, 42, 0.12); color: #0f172a; }
+        #police-acc-dispose-modal .gov-acc-popup-spacer { min-height: 6px; }
+        #police-acc-dispose-modal .popup-actions {
+            margin-top: 10px !important;
+            padding-top: 10px;
+            border-top: 1px solid rgba(148,163,184,0.35);
+        }
+        #police-acc-dispose-modal .gov-acc-act { pointer-events: auto; cursor: pointer; }
+        #police-acc-dispose-modal .gov-acc-popup-inner > div:first-child {
+            color: #0f766e !important;
+            font-weight: 600 !important;
+            font-size: 12px !important;
+            margin-bottom: 6px !important;
+        }
+        #police-acc-dispose-modal .gov-prose-tight { color: #334155 !important; font-size: 11px !important; line-height: 1.45 !important; }
+        #police-acc-dispose-modal .gov-acc-popup-inner .gov-popup-btn {
+            margin-top: 4px !important;
+            padding: 5px 8px !important;
+            font-size: 11px !important;
+            background: rgba(15, 23, 42, 0.92);
+            border-color: rgba(45, 212, 191, 0.35);
+            color: #ecfdf5;
+        }
+        .visually-hidden {
+            position: absolute;
+            width: 1px; height: 1px;
+            padding: 0; margin: -1px;
+            overflow: hidden; clip: rect(0, 0, 0, 0);
+            white-space: nowrap; border: 0;
+        }
+    </style>
+    <script>try { var __hq = new URLSearchParams(location.search); if (__hq.get('compact') === '1') document.documentElement.classList.add('compact-hub'); if (__hq.get('dev') === '1') document.documentElement.classList.add('compact-hub-dev'); } catch (e) {}</script>
+    <script>
+    (function () {
+        try {
+            var q = new URLSearchParams(location.search);
+            if (window.self !== window.top) return;
+            if (q.get('dev') !== '1') return;
+            if (q.get('nohub') === '1') return;
+            location.replace('dev_hub.html');
+        } catch (e) {}
+    })();
+    </script>
+</head>
+<body class="police-app">
+    <script>try { var __q = new URLSearchParams(location.search); if (__q.get('compact') === '1') document.body.classList.add('compact-hub'); if (__q.get('dev') === '1') document.body.classList.add('compact-hub-dev'); } catch (e) {}</script>
+    <div class="container">
+        <div class="map-base">
+            <div class="map-wrap" id="map-wrap">
+                <div id="police-map-toast" class="gov-map-toast" role="status" aria-live="polite"></div>
+                <div id="map-signal-opt-impact" class="map-signal-opt-impact" aria-hidden="true">
+                    <button type="button" class="msoi-close" id="btn-map-signal-opt-impact-close" aria-label="关闭拥堵预览">×</button>
+                    <div class="msoi-head">全域调控 · 拥堵缓解预览（演示）</div>
+                    <div class="msoi-body" id="map-signal-opt-impact-body"></div>
+                </div>
+                <div class="map-flash-overlay" id="map-flash-overlay" aria-hidden="true"></div>
+                <div id="microsim-autosave-modal" role="dialog" aria-modal="true" aria-labelledby="microsim-autosave-title" aria-hidden="true">
+                    <div class="microsim-autosave-panel">
+                        <h3 id="microsim-autosave-title">仿真已完成</h3>
+                        <p id="microsim-autosave-lead" style="margin:0 0 10px;color:#a8b2c4;font-size:12px;">本次路网仿真已跑满并自动保存至本机；已停止继续刷新车，避免卡顿。</p>
+                        <div id="microsim-autosave-phases"></div>
+                        <button type="button" id="btn-microsim-autosave-ok">知道了</button>
+                    </div>
+                </div>
+                <div id="microsim-spawn-ready-modal" role="dialog" aria-modal="true" aria-labelledby="microsim-spawn-ready-title" aria-hidden="true">
+                    <div class="microsim-autosave-panel">
+                        <h3 id="microsim-spawn-ready-title">车辆增加完成</h3>
+                        <p style="margin:0 0 8px;color:#a8b2c4;font-size:12px;">当前已布设 <b id="microsim-spawn-ready-count" style="color:#5eead4;">0</b> 辆车，路网接近饱和（演示）。</p>
+                        <p style="margin:0 0 10px;color:#cbd5e1;font-size:12px;line-height:1.55;"><strong>现在开始仿真</strong>：点击下方「确定」后，车辆将沿道路运动并受信号灯约束；此前为静止布设阶段。</p>
+                        <button type="button" id="btn-microsim-spawn-ready-ok">确定</button>
+                    </div>
+                </div>
+                <div id="police-acc-dispose-modal" role="dialog" aria-modal="false" aria-labelledby="police-acc-dispose-title" aria-hidden="true">
+                    <div class="police-acc-dispose-panel">
+                        <button type="button" class="police-acc-dispose-close" id="btn-police-acc-dispose-close" aria-label="关闭处置面板">×</button>
+                        <h2 id="police-acc-dispose-title" class="visually-hidden">警情处置</h2>
+                        <div id="police-acc-dispose-body"></div>
+                    </div>
+                </div>
+                <div id="gov-live-video-panel" class="gov-live-video-panel" style="display:none" aria-hidden="true">
+                    <div class="gov-live-video-head">
+                        <span id="gov-live-video-title">现场视频回传</span>
+                        <button type="button" id="gov-live-video-close" aria-label="关闭">×</button>
+                    </div>
+                    <div class="gov-live-video-body">
+                        <div class="gov-live-video-placeholder">
+                            <span class="gov-live-video-rec">LIVE 演练</span>
+                            <div>外场视频流接入后可在此嵌入 WebRTC / HLS 播放器<br>以下为指挥席预览占位画面</div>
+                        </div>
+                    </div>
+                </div>
+                <div id="map"></div>
+                <div id="map-global-signal-live-bar" class="map-global-signal-live-bar" aria-hidden="true">
+                    <span class="mgslb-label">全域调控 · 实时效果（演示）</span>
+                    <div id="map-global-signal-live-bar-text" class="mgslb-text">点击「一键全域信号调控」后，将在此显示延误降低与路网通畅度提升。</div>
+                </div>
+                <div id="map-microsim-relief-banner" class="map-microsim-relief-banner" aria-hidden="true">
+                    <button type="button" class="mmrb-close" id="btn-map-microsim-relief-close" aria-label="关闭评估条">×</button>
+                    <div class="mmrb-inner">
+                        <div class="mmrb-title">路网恢复畅通 · 全域调控效果（演示）</div>
+                        <div id="map-microsim-relief-body"></div>
+                        <div id="map-microsim-relief-chart" class="mmrb-chart"></div>
+                    </div>
+                </div>
+                <div class="map-legacy-metrics-sr" aria-hidden="true">
+                    <strong id="pop-police">0</strong>
+                    <strong id="pop-car">0</strong>
+                    <strong id="pop-bike">0</strong>
+                    <strong id="pop-drone">0</strong>
+                    <strong id="pop-cam">0</strong>
+                    <span id="mop-corridor">12</span>
+                    <span id="mop-sig">—</span>
+                    <span id="mop-busline">28</span>
+                    <span id="mop-sim">关</span>
+                    <span id="mop-sim-veh"></span>
+                </div>
+                <div id="map-mode-switch" class="map-mode-switch" role="radiogroup" aria-label="地图底图图层">
+                    <span class="map-mode-label">地图图层</span>
+                    <button type="button" class="map-mode-btn active" data-mode="road" title="警情、警力与标准路网；信号灯灯色示意">路网信息</button>
+                    <button type="button" class="map-mode-btn" data-mode="heat" title="拥堵热力 + 信号灯；仿真运行时可叠加微观仿真热力">拥堵热力</button>
+                    <button type="button" class="map-mode-btn" data-mode="sim" title="仅显示/置顶仿真车辆图层（需先在侧栏「本次强制实时」启动仿真）">仿真车流</button>
+                </div>
+                <div id="compact-hub-view-nav" class="compact-hub-view-nav" aria-label="执勤视图（紧凑模式）">
+                    <span class="cvn-label">执勤视图</span>
+                    <button type="button" data-feature="overview">总览</button>
+                    <button type="button" data-feature="alerts">告警</button>
+                    <button type="button" data-feature="signal">信号灯</button>
+                    <button type="button" data-feature="greenwave">绿波</button>
+                    <button type="button" data-feature="video">视频</button>
+                </div>
+                <div id="map-layer-tools" class="map-layer-tools map-layer-tools--legacy" aria-hidden="true" style="display:none;">
+                    <button type="button" id="btn-layer-heat">热力图层 · 拥堵</button>
+                    <button type="button" id="btn-layer-road">标准路网</button>
+                    <button type="button" id="btn-layer-traffic-sim">仿真车辆轨迹</button>
+                </div>
+                <div id="map-floating-ui" class="map-ui-floating" aria-hidden="true">
+                    <button type="button" id="btn-heat-reset">恢复全市热力视图</button>
+                </div>
+                <div id="police-video-layer" aria-hidden="true">
+                    <div class="police-video-head">
+                        <span>现场视频回传 · 演练信道</span>
+                        <span style="font-size:11px;color:#8892b0;">H.265 / WebRTC 占位</span>
+                    </div>
+                    <div class="police-video-stage" id="police-video-stage">LENS_01: CONNECTING…<br><span style="color:#8892b0;font-size:11px;">接入后可嵌入播放器组件</span></div>
+                </div>
+            </div>
+        </div>
+        <div class="gov-ui">
+            <div class="header">
+                <div class="header-brand">
+                    <span>重庆市智慧交通信号协同管控平台 · 警用一线指挥终端</span>
+                    <span class="header-note">执勤警员演示账号 · 信号灯、警情、绿波、公交优先、场景预演与跨端裁决均在本终端完成（原政府端能力已合并）。</span>
+                </div>
+                <div class="header-right">
+                    <a class="dev-link" href="dev_hub.html" target="_blank" rel="noopener">开发者枢纽</a>
+                    <span class="police-alarm-pill" id="police-alarm-pill">路网事件 —</span>
+                    <span id="system-time"></span>
+                </div>
+            </div>
+            <div class="kpi-strip" id="kpi-strip" aria-label="勤务指标">
+                <div class="kpi-card c-red"><div><div class="kl">路网监测事件</div><div class="kv" id="kpi-acc">—</div></div></div>
+                <div class="kpi-card c-cyan"><div><div class="kl">在线警力</div><div class="kv" id="kpi-police">12</div></div></div>
+                <div class="kpi-card c-amber"><div><div class="kl">巡逻警车</div><div class="kv" id="kpi-car">8</div></div></div>
+                <div class="kpi-card c-green"><div><div class="kl">铁骑单元</div><div class="kv" id="kpi-bike">15</div></div></div>
+                <div class="kpi-card c-violet"><div><div class="kl">救援绿波任务</div><div class="kv" id="kpi-gw">0</div></div></div>
+                <div class="kpi-card c-cyan"><div><div class="kl">无人机编队</div><div class="kv" id="kpi-drone">3</div></div></div>
+                <div class="kpi-card c-amber"><div><div class="kl">视频在线</div><div class="kv" id="kpi-cam">842</div></div></div>
+                <div class="kpi-card c-red"><div><div class="kl">信号干预</div><div class="kv" id="kpi-sig-ops">0</div></div></div>
+            </div>
+            <div class="gov-ticker-pack">
+            <div class="accident-ticker-wrap" id="accident-ticker-wrap" aria-live="polite">
+                <div class="accident-ticker-label">事故快报</div>
+                <div class="accident-ticker-track">
+                    <div class="accident-ticker-marquee" id="accident-ticker-marquee"></div>
+                </div>
+            </div>
+            </div>
+            <div class="left-panel" id="left-panel-root">
+                <div class="left-nav-block">
+                    <div class="nav-title">执勤模块</div>
+            <ul id="menu-options">
+                        <li data-feature="overview" class="active">路况与警情总览</li>
+                        <li data-feature="alerts">实时事故告警</li>
+                <li data-feature="signal">路段信号灯控制</li>
+                <li data-feature="greenwave">救援绿波通道</li>
+                <li data-feature="bus">公交优先调度</li>
+                <li data-feature="arbitration">跨端冲突裁决</li>
+                <li data-feature="scenario">特殊场景配时</li>
+                <li data-feature="video">现场视频回传</li>
+                <li data-feature="audit">操作审计</li>
+            </ul>
+        </div>
+                <div class="left-microsim-pause-block" id="left-microsim-pause-block">
+                    <button type="button" class="btn-left-microsim-pause" id="btn-left-microsim-pause-live" disabled title="暂停或继续当前微观车流仿真（含本次强制实时与离线回放）">暂停实时推演</button>
+                </div>
+                <div class="left-list-block" id="left-list-block">
+                    <div class="left-list-head"><span>实时交通事件</span><span style="font-size:9px;color:#5c6d82;">演示</span></div>
+                    <input type="search" class="left-search" id="left-incident-search" placeholder="筛选路段 / 类型" autocomplete="off"/>
+                    <div class="left-list-scroll" id="left-incident-list"></div>
+                </div>
+                <div class="left-panel-charts">
+                    <div class="hud-card-title" style="margin-top:0;">同期与环比分析（演示）</div>
+                    <div class="hud-analytics-block" id="hud-analytics-block">
+                        <div class="hud-analytics-row" id="hud-stat-yoy">—</div>
+                        <div class="hud-analytics-row" id="hud-stat-accident">—</div>
+                        <div class="hud-analytics-row" id="hud-stat-eff">—</div>
+                        <div class="hud-analytics-row" id="hud-stat-congest">—</div>
+                    </div>
+                    <div class="hud-card-title">交通事件等级占比</div>
+                    <div class="hud-donut-wrap">
+                        <svg id="hud-donut-svg" width="110" height="110" viewBox="0 0 120 120" aria-label="事件等级占比"></svg>
+                        <div class="hud-legend" id="hud-donut-legend"></div>
+                    </div>
+                    <div class="hud-card-title">近24h 警情与路况强度</div>
+                    <div class="hud-chart-wrap">
+                        <svg id="hud-line-svg" viewBox="0 0 300 120" preserveAspectRatio="xMidYMid meet"></svg>
+                    </div>
+                </div>
+            </div>
+            <div class="gov-center-stack">
+                <div class="gov-map-hit-proxy" aria-hidden="true"></div>
+                <div id="scenario-inline-panel" class="scenario-inline-panel scenario-floating" style="display: none;">
+                    <h3>特殊场景 · 区域配时预演</h3>
+                    <div class="scenario-top-nav">
+                        <button type="button" class="btn-scenario-back" id="btn-scenario-back" style="display:none;">← 返回</button>
+                        <button type="button" class="btn-action btn-secondary" id="btn-scenario-inline-close" style="margin-left:auto;width:auto;padding:6px 12px;">关闭面板</button>
+                    </div>
+                    <div class="scenario-panel-body">
+                        <div id="scenario-screen-home" class="scenario-view-screen active">
+                            <p style="font-size:12px;color:#8892b0;line-height:1.55;">大型活动 / 节假日 / 封路等。选地标后预演热力（演示）。</p>
+                            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">
+                                <button type="button" class="scenario-landmark-btn btn-secondary" data-lat="29.558" data-lng="106.575" data-name="解放碑商圈">解放碑</button>
+                                <button type="button" class="scenario-landmark-btn btn-secondary" data-lat="29.575" data-lng="106.532" data-name="观音桥">观音桥</button>
+                                <button type="button" class="scenario-landmark-btn btn-secondary" data-lat="29.52" data-lng="106.565" data-name="南坪立交">南坪立交</button>
+                            </div>
+                            <p id="scenario-map-hint" class="scenario-hint" style="font-size:11px;color:#6b7a93;margin:8px 0;display:none;"></p>
+                            <button type="button" class="btn-action" id="btn-scenario-pick-map">地图选点</button>
+                            <button type="button" class="btn-action btn-secondary" id="btn-scenario-cancel-pick" style="margin-top:6px;">结束选点</button>
+                        </div>
+                        <div id="scenario-screen-plans" class="scenario-view-screen">
+                            <p style="font-size:12px;margin-top:0;">锚点 <b id="scenario-anchor-label">—</b></p>
+                            <div class="plan-buttons" style="display:flex;flex-wrap:wrap;gap:8px;">
+                                <button type="button" class="btn-action scenario-plan-enter" data-plan="1">方案一 · 主干道绿信比</button>
+                                <button type="button" class="btn-action scenario-plan-enter" data-plan="2">方案二 · 潮汐协同</button>
+                                <button type="button" class="btn-action scenario-plan-enter" data-plan="3">方案三 · 公交优先</button>
+                            </div>
+                        </div>
+                        <div id="scenario-screen-detail" class="scenario-view-screen">
+                            <div id="scenario-detail-content"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="right-panel hud-panel" id="right-panel-container">
+                <div class="hud-microsim-dock" id="hud-microsim-dock" aria-label="微观交通仿真">
+                    <div class="hud-microsim-dock-title">微观仿真 · 启动与缓存</div>
+                    <div class="map-microsim-tools" id="map-microsim-tools">
+                        <span class="microsim-hint" id="microsim-cache-hint"></span>
+                        <div class="map-microsim-tools-row">
+                            <button type="button" class="btn-secondary" id="btn-microsim-save" title="建议实时跑 2–5 分钟、车辆≥150 再保存（演示）；把当前路线写入本地">保存离线车流</button>
+                            <button type="button" class="btn-secondary" id="btn-microsim-clear" title="删除本地缓存，下次重新实时请求路线">清除离线数据</button>
+                            <button type="button" class="btn-secondary" id="btn-microsim-playback" title="播放本机已保存的车流快照（不请求 OSRM）">回放离线</button>
+                            <button type="button" class="btn-secondary" id="btn-microsim-force-live" title="从 OSRM 实时拉线启动仿真：先布车至近饱和，确认后开始运动" aria-pressed="false">本次强制实时</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="view-overview" class="right-panel-view active">
+                    <div class="hud-strip"><span>POLICE · CQ</span><span id="hud-sync-clock">SYNC</span></div>
+                    <div class="hud-metric-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+                        <div class="hud-metric-mini"><div class="hm-label">路网平均车速</div><div class="hm-val" id="hud-kmh">42<span class="hm-unit"> km/h</span></div></div>
+                        <div class="hud-metric-mini"><div class="hm-label">监测事件数</div><div class="hm-val" id="hud-active-ev">—</div></div>
+                        <div class="hud-metric-mini"><div class="hm-label">仿真车辆（运行中）</div><div class="hm-val" id="hud-sim-veh">0</div></div>
+                    </div>
+                    <div class="hud-card-title" style="margin-top:10px;">延误对比（仿真 + 全域调控）</div>
+                    <p id="hud-signal-delay-compare" class="hud-chart-note" style="margin:0 0 10px;line-height:1.5;color:#94a3b8;font-size:10px;">仿真车流模式下：开启全域调控后，将对比<strong style="color:#5eead4">基准配时</strong>与<strong style="color:#fda4a4">协同配时</strong>在路口附近的等效延误（演示）。</p>
+                    <p id="hud-travel-benefit" class="hud-chart-note" style="margin:0 0 12px;line-height:1.55;">点击<b>一键全域信号调控</b>后，将在此展示相对未调控的<b>估算时间节约</b>（演示）。</p>
+                    <div class="hud-global-signal-card" id="hud-global-signal-card">
+                        <div class="hud-card-title" style="margin-top:0;">全域信号灯 · 一键调度</div>
+                        <p class="hud-chart-note" style="margin:0 0 10px;line-height:1.6;color:#8b9cb0;">对全市已上图路口统一优化绿信比与相位错峰（演示）。点击后地图出现<strong style="color:#5eead4">拥堵缓解预览</strong>；若当前为<strong>拥堵热力</strong>图层，热力与热点标签会同步演示缓解。</p>
+                        <button type="button" class="btn-action js-btn-global-signal" id="btn-hud-global-signal" style="width:100%;margin:0;padding:11px 14px;font-size:13px;letter-spacing:0.04em;">一键全域信号调控</button>
+                    </div>
+                </div>
+                <div id="view-alerts" class="right-panel-view">
+                    <div class="data-card police-view-rich">
+                        <h4 id="police-alert-h4">实时事故告警</h4>
+                        <div class="pvr-stats" id="police-alert-stats" aria-label="等级分布"></div>
+                        <div class="pvr-subtitle">当前选中</div>
+                        <div id="police-alert-selected" class="pvr-selected"></div>
+                        <div class="pvr-subtitle">待处置列表</div>
+                        <div id="police-alert-mini-list" class="pvr-mini-list"></div>
+                        <p id="police-alert-detail" class="pvr-hint"></p>
+                    </div>
+                </div>
+                <div id="view-signal" class="right-panel-view">
+                    <div class="data-card police-view-rich">
+                        <h4>路段信号灯控制</h4>
+                        <div class="pvr-stats pvr-stats--signal" id="police-signal-stats-row" aria-label="信号概览"></div>
+                        <p id="police-signal-panel-meta" style="font-size:12px;color:#94a3b8;margin:0 0 8px;line-height:1.55;">—</p>
+                        <div class="pvr-subtitle">当前路口</div>
+                        <div id="police-signal-selected-card" class="pvr-selected"></div>
+                        <div class="pvr-sig-actions" id="police-signal-quick-actions">
+                            <button type="button" class="btn-action pvr-sig-btn" data-sig-mode="green" disabled>强制绿</button>
+                            <button type="button" class="btn-action pvr-sig-btn" data-sig-mode="red" disabled>全红清空</button>
+                            <button type="button" class="btn-action pvr-sig-btn" data-sig-mode="yellow" disabled>黄闪</button>
+                        </div>
+                        <p id="police-signal-feedback" style="font-size:12px;color:#7dd3a8;min-height:2em;margin-top:10px;"></p>
+                    </div>
+                </div>
+                <div id="view-greenwave" class="right-panel-view">
+                    <div class="data-card">
+                        <h4>救援绿波</h4>
+                        <p id="police-gw-hint" style="font-size:13px;color:#a8b2d1;margin:0;">请先在总览/告警地图点击事故锚点，或左侧列表定位后选中警情。</p>
+                        <button type="button" class="btn-action" id="btn-police-greenwave">为选中警情开启绿波</button>
+                        <p id="police-gw-feedback" style="font-size:12px;color:#7dd3a8;margin-top:8px;"></p>
+                    </div>
+                </div>
+                <div id="view-video" class="right-panel-view">
+                    <div class="data-card">
+                        <h4>视频回传</h4>
+                        <p id="police-video-panel-meta" style="font-size:12px;color:#94a3b8;margin:0 0 8px;line-height:1.55;">—</p>
+                        <p style="font-size:13px;color:#a8b2d1;margin:0;">切换后地图区域将切换为全屏视频占位；可嵌入 WebRTC / HLS。</p>
+                    </div>
+                </div>
+                <div id="view-bus" class="right-panel-view">
+                    <div class="data-card">
+                        <h4>公交优先</h4>
+                        <p style="font-size:13px;color:#a8b2d1;">策略作用于地图公交图标与走廊（演示）。</p>
+                        <button type="button" class="btn-action" id="btn-bus-all">全线绿波优先</button>
+                        <button type="button" class="btn-action btn-secondary" id="btn-bus-peak" style="margin-top:8px;">仅高峰走廊</button>
+                        <p id="bus-feedback" style="font-size:12px;color:#fda4a4;margin-top:10px;"></p>
+                    </div>
+                </div>
+                <div id="view-arbitration" class="right-panel-view">
+                    <div class="data-card">
+                        <h4>跨端冲突裁决</h4>
+                        <p style="font-size:12px;color:#8892b0;">特种车与公交走廊冲突时的策略（演示）。</p>
+                        <div id="arbitrate-queue" style="font-size:12px;color:#a8b2d1;margin:8px 0;"></div>
+                        <button type="button" class="btn-action" id="btn-arb-emergency" style="width:100%;margin-top:6px;">保障应急绝对优先</button>
+                        <button type="button" class="btn-action btn-secondary" id="btn-arb-transit" style="width:100%;margin-top:6px;">折中：公交让行一段</button>
+                        <p id="arbitrate-result" style="font-size:12px;color:#fda4a4;margin-top:8px;"></p>
+                    </div>
+                </div>
+                <div id="view-scenario" class="right-panel-view">
+                    <div class="data-card">
+                        <h4>特殊场景</h4>
+                        <p id="police-scenario-panel-meta" style="font-size:12px;color:#94a3b8;margin:0 0 8px;line-height:1.55;">—</p>
+                        <p style="font-size:12px;color:#8892b0;">请使用地图下方场景面板选择地标与方案。</p>
+                    </div>
+                </div>
+        </div>
+        </div>
+        <div id="audit-view" class="non-map-view audit-floating" style="display: none;">
+            <h3 style="margin-top:0;color:#ff9b8a;">勤务与信号操作审计</h3>
+            <p style="color:#8892b0;font-size:13px;">演示数据</p>
+            <table class="log-table">
+                <thead><tr><th>时间</th><th>来源</th><th>事件</th><th>状态</th></tr></thead>
+                <tbody id="audit-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="dev_shim.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    <script src="signal_coordination_core.js"></script>
+    <script src="traffic_microsim.js"></script>
+    <script src="police_overview.js"></script>
+    <div id="ticker-detail-pop" role="tooltip"></div>
+    <div id="hud-chart-tooltip" aria-hidden="true"></div>
+</body>
+</html>
