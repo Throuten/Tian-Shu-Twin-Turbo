@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>开发者枢纽 · 警用端联调</title>
+    <style>
+        * { box-sizing: border-box; }
+        html, body { margin: 0; height: 100%; font-family: system-ui, "Segoe UI", sans-serif; background: #0c0f14; color: #e8eaef; }
+        .hub { display: grid; grid-template-columns: 300px 1fr; height: 100vh; }
+        aside {
+            background: linear-gradient(180deg, #121826 0%, #0c1018 100%);
+            border-right: 1px solid rgba(100, 116, 139, 0.35);
+            display: flex; flex-direction: column;
+            padding: 18px 14px 14px; gap: 14px; min-height: 0; overflow-y: auto;
+            box-shadow: 6px 0 32px rgba(0,0,0,0.4);
+        }
+        aside h1 {
+            margin: 0 0 6px; font-size: 18px; font-weight: 700;
+            color: #93c5fd; letter-spacing: 0.02em;
+        }
+        #step-features { display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto; min-height: 0; }
+        #hub-terminal-title {
+            margin: 0 0 8px; font-size: 11px; font-weight: 700; color: #7eb8ff;
+            letter-spacing: 0.1em; text-transform: uppercase;
+        }
+        #hub-feature-list {
+            list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 0 0 auto;
+            display: flex; flex-direction: column; gap: 4px; max-height: 42vh;
+        }
+        #hub-feature-list li {
+            padding: 12px 14px; border-radius: 8px; cursor: pointer; font-size: 13px;
+            line-height: 1.45;
+            border: 1px solid rgba(51, 65, 85, 0.85);
+            background: linear-gradient(180deg, #1a2230 0%, #151c28 100%);
+            color: #cbd5e1;
+            transition: transform 0.11s ease, border-color 0.15s, background 0.15s, box-shadow 0.15s;
+        }
+        #hub-feature-list li:hover {
+            border-color: rgba(96, 165, 250, 0.45); background: #1c2636;
+        }
+        #hub-feature-list li:active { transform: scale(0.98); }
+        #hub-feature-list li.active {
+            border-color: #3b82f6;
+            color: #f8fafc;
+            background: linear-gradient(135deg, #1e40af 0%, #1d4ed8 55%, #172554 100%);
+            box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.35), 0 6px 20px rgba(37, 99, 235, 0.22);
+        }
+        .hub-dev-tools {
+            flex-shrink: 0; margin-top: 2px; padding-top: 8px;
+            border-top: 1px solid rgba(51, 65, 85, 0.55);
+            display: flex; flex-direction: column; gap: 4px;
+        }
+        .hub-dev-tools h3 {
+            margin: 0; font-size: 10px; font-weight: 700; color: #93c5fd;
+            letter-spacing: 0.08em; text-transform: uppercase;
+        }
+        .hub-btn {
+            display: block; width: 100%; padding: 11px 14px; border-radius: 8px; cursor: pointer; font-size: 13px;
+            line-height: 1.45;
+            font-weight: 500; text-align: left;
+            border: 1px solid rgba(71, 85, 105, 0.95);
+            color: #dce3ee;
+            background: linear-gradient(180deg, #222c3b 0%, #1a2230 100%);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.45);
+            transition: transform 0.1s ease, border-color 0.15s, background 0.15s, box-shadow 0.15s;
+        }
+        .hub-btn:hover {
+            border-color: rgba(96, 165, 250, 0.5); color: #f1f5f9;
+        }
+        .hub-btn:active { transform: scale(0.97); }
+        .hub-btn:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
+        .hub-btn.hub-btn-active {
+            border-color: #3b82f6 !important;
+            color: #fff !important;
+            background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%) !important;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.28), inset 0 1px 0 rgba(255,255,255,0.08);
+        }
+        /* 与 #hub-feature-list li 一致：同组内「当前点击」深蓝，「上一次点击」浅蓝，其余恢复灰底 */
+        .hub-dev-tools[data-hub-group] .hub-btn.hub-dd-deep {
+            border-color: #3b82f6 !important;
+            color: #f8fafc !important;
+            background: linear-gradient(135deg, #1e40af 0%, #1d4ed8 55%, #172554 100%) !important;
+            box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.35), 0 6px 20px rgba(37, 99, 235, 0.22);
+        }
+        .hub-dev-tools[data-hub-group] .hub-btn.hub-dd-light {
+            border-color: #3b82f6 !important;
+            color: #fff !important;
+            background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%) !important;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.28), inset 0 1px 0 rgba(255,255,255,0.08);
+        }
+        .hub-btn-primary {
+            border-color: rgba(59, 130, 246, 0.75);
+            background: linear-gradient(180deg, #2563eb 0%, #1e3a8a 100%);
+            color: #fff;
+            font-weight: 600;
+        }
+        .hub-btn-primary:hover { border-color: #93c5fd; }
+        .hub-btn-secondary {
+            border-color: rgba(55, 65, 81, 0.95);
+            color: #b8c3d4;
+            background: linear-gradient(180deg, #1c2430 0%, #151b24 100%);
+        }
+        .hub-btn-secondary:hover { border-color: rgba(100, 116, 139, 0.8); }
+        .hub-btn.is-sending { opacity: 0.72; pointer-events: none; transform: scale(0.98); }
+        main { min-width: 0; background: #0a0f14; position: relative; }
+        #hub-frame { width: 100%; height: 100%; border: none; display: block; }
+        .empty-main {
+            position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+            color: #484f58; font-size: 14px; pointer-events: none;
+        }
+        .empty-main.hide { display: none; }
+
+        /* 数据分析图表样式 */
+        .hub-charts {
+            margin-top: auto; padding-top: 16px; border-top: 1px solid rgba(51, 65, 85, 0.6);
+            display: flex; flex-direction: column; gap: 12px;
+        }
+        .hub-chart-card {
+            background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(148, 163, 184, 0.12);
+            border-radius: 10px; padding: 12px;
+        }
+        .hub-chart-title {
+            font-size: 11px; font-weight: 700; color: #93c5fd; letter-spacing: 0.08em;
+            margin-bottom: 8px; text-transform: uppercase; display: flex; align-items: center; gap: 6px;
+        }
+        .hub-chart-title::before { content: ''; width: 3px; height: 3px; background: #60a5fa; border-radius: 50%; }
+        .hub-analytics-grid { display: grid; grid-template-columns: 1fr; gap: 6px; }
+        .hub-analytics-item { font-size: 11px; color: #94a3b8; line-height: 1.5; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .hub-analytics-item:last-child { border-bottom: none; }
+        .hub-donut-container { display: flex; align-items: center; gap: 10px; }
+        .hub-donut-legend { font-size: 10px; color: #64748b; line-height: 1.6; }
+        .hub-donut-legend span { display: inline-block; width: 7px; height: 7px; border-radius: 2px; margin-right: 5px; }
+        .hub-line-container { width: 100%; height: 80px; margin-top: 4px; }
+        .hub-line-container svg { width: 100%; height: 100%; }
+    </style>
+</head>
+<body>
+    <div class="hub">
+        <aside>
+            <h1>开发者枢纽</h1>
+            <div id="step-features">
+                <h3 id="hub-terminal-title">警用应急端</h3>
+                <ul id="hub-feature-list"></ul>
+                <ul id="hub-vehicle-feature-list" style="display: none;"></ul>
+                <div class="hub-dev-tools" data-hub-group="sim-cache" id="gov-tools-cache">
+                    <h3>仿真缓存</h3>
+                    <button type="button" class="hub-btn hub-btn-secondary" data-hub-cmd="microsimSave">保存离线车流</button>
+                    <button type="button" class="hub-btn hub-btn-secondary" data-hub-cmd="microsimClear">清除离线数据</button>
+                    <button type="button" class="hub-btn hub-btn-secondary" data-hub-cmd="microsimForceLive">本次强制实时</button>
+                </div>
+            </div>
+            
+            <div class="hub-charts">
+                <div class="hub-chart-card">
+                    <div class="hub-chart-title">同期与环比分析 (24h)</div>
+                    <div class="hub-analytics-grid" id="hub-analytics-grid">
+                        <div class="hub-analytics-item">同比 24h 前: <span style="color:#4ade80">+12.4%</span></div>
+                        <div class="hub-analytics-item">事故告警环比: <span style="color:#fb7185">-4.2%</span></div>
+                        <div class="hub-analytics-item">路网通畅率: <span style="color:#22d3ee">88.5%</span></div>
+                    </div>
+                </div>
+                <div class="hub-chart-card">
+                    <div class="hub-chart-title">交通事件等级占比</div>
+                    <div class="hub-donut-container">
+                        <svg id="hub-donut-svg" width="80" height="80" viewBox="0 0 120 120"></svg>
+                        <div class="hub-donut-legend" id="hub-donut-legend"></div>
+                    </div>
+                </div>
+                <div class="hub-chart-card">
+                    <div class="hub-chart-title">近24h 警情与路况强度</div>
+                    <div class="hub-line-container">
+                        <svg id="hub-line-svg" viewBox="0 0 300 120" preserveAspectRatio="xMidYMid meet"></svg>
+                    </div>
+                </div>
+            </div>
+        </aside>
+        <main>
+            <div class="empty-main hide" id="hub-empty"></div>
+            <iframe id="hub-frame" title="警用终端" src="police_terminal.html?dev=1&amp;compact=1"></iframe>
+        </main>
+    </div>
+    <script>
+    (function () {
+        var frame = document.getElementById('hub-frame');
+        var listEl = document.getElementById('hub-feature-list');
+        var features = [
+            { id: 'overview', label: '路况与警情总览' },
+            { id: 'alerts', label: '实时事故告警' },
+            { id: 'signal', label: '路段信号灯控制' },
+            { id: 'greenwave', label: '救援绿波通道' },
+            { id: 'video', label: '现场视频回传' }
+        ];
+
+        function hubSetListActive(featureId) {
+            if (!listEl || !featureId) return;
+            listEl.querySelectorAll('li').forEach(function (li) {
+                li.classList.toggle('active', li.dataset.feature === featureId);
+            });
+        }
+
+        features.forEach(function (f, i) {
+            var li = document.createElement('li');
+            li.textContent = f.label;
+            li.dataset.feature = f.id;
+            if (i === 0) li.classList.add('active');
+            li.addEventListener('click', function () {
+                listEl.querySelectorAll('li').forEach(function (x) { x.classList.remove('active'); });
+                li.classList.add('active');
+                sendSwitch(f.id);
+            });
+            listEl.appendChild(li);
+        });
+
+        function sendSwitch(featureId) {
+            try {
+                frame.contentWindow.postMessage({ type: 'TRAFFIC_UI', action: 'switchFeature', feature: featureId }, '*');
+            } catch (e) {}
+        }
+
+        function sendDevCommand(cmd, opts) {
+            opts = opts || {};
+            var msg = {
+                type: 'TRAFFIC_UI',
+                action: 'devHubCommand',
+                command: cmd,
+                silentToast: !!opts.silentToast
+            };
+            if (opts.feature) msg.feature = opts.feature;
+            if (opts.mode) msg.mode = opts.mode;
+            try {
+                frame.contentWindow.postMessage(msg, '*');
+            } catch (e) {}
+        }
+
+        function hubSelectInGroup(groupEl, btn) {
+            if (!groupEl || !btn) return;
+            var g = groupEl.getAttribute('data-hub-group');
+            if (!g) return;
+            var oldDeep = groupEl.querySelector('.hub-dd-deep');
+            if (oldDeep && oldDeep !== btn) {
+                groupEl.querySelectorAll('.hub-dd-light').forEach(function (b) {
+                    b.classList.remove('hub-dd-light');
+                });
+                oldDeep.classList.remove('hub-dd-deep');
+                oldDeep.classList.add('hub-dd-light');
+            }
+            btn.classList.remove('hub-dd-light');
+            btn.classList.add('hub-dd-deep');
+        }
+
+        document.querySelectorAll('[data-hub-cmd]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var cmd = btn.getAttribute('data-hub-cmd');
+                var feat = btn.getAttribute('data-hub-feature');
+                var mode = btn.getAttribute('data-hub-mode');
+                var group = btn.closest('.hub-dev-tools[data-hub-group]');
+                if (group) {
+                    hubSelectInGroup(group, btn);
+                } else if (!(cmd === 'applyGlobalSignalCoordination' && feat)) {
+                    document.querySelectorAll('.hub-btn[data-hub-cmd]').forEach(function (b) {
+                        b.classList.remove('hub-btn-active');
+                    });
+                    btn.classList.add('hub-btn-active');
+                    setTimeout(function () { btn.classList.remove('hub-btn-active'); }, 450);
+                }
+                btn.classList.add('is-sending');
+                setTimeout(function () { btn.classList.remove('is-sending'); }, 220);
+                var opts = {};
+                if (feat) opts.feature = feat;
+                if (mode) opts.mode = mode;
+                if (feat) hubSetListActive(feat);
+                sendDevCommand(cmd, opts);
+            });
+        });
+
+        window.addEventListener('message', function (e) {
+            var d = e.data;
+            if (!d || d.type !== 'TRAFFIC_UI') return;
+            if (d.action === 'featureActive' && d.feature) {
+                hubSetListActive(d.feature);
+            }
+        });
+
+        // 车主端服务按钮点击事件 (仅当按钮存在时绑定)
+        ['vehicle-nav', 'vehicle-traffic', 'vehicle-parking', 'vehicle-weather', 'vehicle-emergency', 'switchToVehicle', 'switchToGov'].forEach(function(id) {
+            var btn = document.getElementById(id);
+            if (btn) {
+                btn.addEventListener('click', function() {
+                    try {
+                        if (id === 'switchToVehicle') {
+                            window.location.href = 'vehicle_terminal.html';
+                        } else if (id === 'switchToGov') {
+                            document.getElementById('hub-frame').src = 'police_terminal.html?dev=1&compact=1';
+                            document.getElementById('hub-terminal-title').textContent = '警用应急端';
+                            document.getElementById('hub-feature-list').style.display = 'block';
+                            document.getElementById('hub-vehicle-feature-list').style.display = 'none';
+                        } else {
+                            var service = id.replace('vehicle-', '');
+                            frame.contentWindow.postMessage({ type: 'VEHICLE_UI', action: 'switchService', service: service }, '*');
+                        }
+                    } catch (e) {}
+                });
+            }
+        });
+
+        function postInvalidateMap() {
+            try {
+                frame.contentWindow.postMessage({ type: 'TRAFFIC_UI', action: 'invalidateMap' }, '*');
+            } catch (e) {}
+        }
+
+        /* 渲染侧边栏图表 */
+        function renderHubCharts() {
+            // 饼图数据
+            const slices = [
+                { label: '严重', pct: 0.15, color: '#fb7185' },
+                { label: '一般', pct: 0.35, color: '#fbbf24' },
+                { label: '轻微', pct: 0.50, color: '#4ade80' }
+            ];
+            
+            const donutSvg = document.getElementById('hub-donut-svg');
+            const donutLeg = document.getElementById('hub-donut-legend');
+            
+            if (donutSvg) {
+                const cx = 60, cy = 60, r0 = 32, r1 = 52;
+                let a = -Math.PI / 2;
+                let paths = '';
+                
+                function getPoint(x, y, r, angle) {
+                    return {
+                        x: x + r * Math.cos(angle),
+                        y: y + r * Math.sin(angle)
+                    };
+                }
+
+                slices.forEach(s => {
+                    const da = s.pct * Math.PI * 2;
+                    const a1 = a + da;
+                    
+                    const p0o = getPoint(cx, cy, r1, a);
+                    const p1o = getPoint(cx, cy, r1, a1);
+                    const p0i = getPoint(cx, cy, r0, a);
+                    const p1i = getPoint(cx, cy, r0, a1);
+                    
+                    const large = da > Math.PI ? 1 : 0;
+                    
+                    const d = [
+                        'M', p0o.x, p0o.y,
+                        'A', r1, r1, 0, large, 1, p1o.x, p1o.y,
+                        'L', p1i.x, p1i.y,
+                        'A', r0, r0, 0, large, 0, p0i.x, p0i.y,
+                        'Z'
+                    ].join(' ');
+                    
+                    paths += `<path d="${d}" fill="${s.color}" opacity="0.95"/>`;
+                    a = a1;
+                });
+                
+                donutSvg.innerHTML = paths + `<circle cx="60" cy="60" r="26" fill="#0f172a" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>`;
+                
+                if (donutLeg) {
+                    donutLeg.innerHTML = slices.map(s => 
+                        `<div style="margin-bottom:2px;"><span style="background:${s.color};"></span>${s.label} ${(s.pct * 100).toFixed(0)}%</div>`
+                    ).join('');
+                }
+            }
+
+            // 折线图数据
+            const lineSvg = document.getElementById('hub-line-svg');
+            if (lineSvg) {
+                const W = 300, H = 120, L = 24, padL = 20, padR = 5, padT = 10, padB = 15;
+                const innerW = W - padL - padR, innerH = H - padT - padB;
+                const data = [];
+                for (let i = 0; i < L; i++) data.push(20 + Math.random() * 30 + Math.sin(i / 3) * 10);
+                const mx = 60;
+                const X = i => padL + (i / (L - 1)) * innerW;
+                const Y = v => padT + innerH - (v / mx) * innerH;
+                
+                let d = `M ${X(0)} ${Y(data[0])}`;
+                let area = `M ${X(0)} ${padT + innerH} L ${X(0)} ${Y(data[0])}`;
+                for (let i = 1; i < L; i++) {
+                    d += ` L ${X(i)} ${Y(data[i])}`;
+                    area += ` L ${X(i)} ${Y(data[i])}`;
+                }
+                area += ` L ${X(L-1)} ${padT + innerH} Z`;
+
+                lineSvg.innerHTML = `
+                    <defs><linearGradient id="hubLineGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="rgba(147, 197, 253, 0.3)"/><stop offset="100%" stop-color="transparent"/></linearGradient></defs>
+                    <path d="${area}" fill="url(#hubLineGrad)"/>
+                    <path d="${d}" fill="none" stroke="#60a5fa" stroke-width="2"/>
+                    <text x="${padL}" y="${H}" fill="#4b5563" font-size="9">00:00</text>
+                    <text x="${W - 35}" y="${H}" fill="#4b5563" font-size="9">23:59</text>
+                `;
+            }
+        }
+
+        renderHubCharts();
+
+        frame.addEventListener('load', function () {
+            var first = features[0];
+            listEl.querySelectorAll('li').forEach(function (x) { x.classList.toggle('active', x.dataset.feature === first.id); });
+            sendSwitch(first.id);
+            setTimeout(function () { sendSwitch(first.id); }, 180);
+            setTimeout(function () { sendSwitch(first.id); }, 450);
+            postInvalidateMap();
+            setTimeout(postInvalidateMap, 200);
+            setTimeout(postInvalidateMap, 600);
+        });
+        window.addEventListener('resize', function () {
+            postInvalidateMap();
+        });
+    })();
+    </script>
+</body>
+</html>
