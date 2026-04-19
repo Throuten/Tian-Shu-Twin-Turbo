@@ -1,0 +1,18 @@
+# MySQL for local dev: matches application-docker-mysql.properties (root/root, DB traffic_system).
+# Port 3307 on host avoids conflict with an existing MySQL on 3306.
+# Start: start-mysql-docker.cmd
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: traffic-mysql-dev
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: traffic_system
+      TZ: Asia/Shanghai
+    ports:
+      - "3307:3306"
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --default-authentication-plugin=mysql_native_password
